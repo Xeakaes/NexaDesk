@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import random
+import time
 
 import requests
 
 from core.agent.cancellation import CancellationToken
+from core.agent.telemetry import log_event
 from core.providers.base import (
     ChatMessage,
     ModelProvider,
@@ -96,6 +98,19 @@ def _rate_limit_delay(resp, attempt: int) -> float:
     return base * (0.5 + random.random())
 
 
+def _ratelimit_headers(resp) -> dict:
+    """Provider rate-limit headers (Groq's x-ratelimit-*) for telemetry."""
+    try:
+        items = resp.headers.items()
+    except Exception:  # noqa: BLE001 — odd header containers still log fine
+        return {}
+    return {
+        k: v
+        for k, v in items
+        if k.lower().startswith("x-ratelimit-") or k.lower() == "retry-after"
+    }
+
+
 class OpenAICompatProvider(ModelProvider):
     supports_tools = True
     supports_vision = True
@@ -116,11 +131,54 @@ class OpenAICompatProvider(ModelProvider):
         self._session = session or requests.Session()
         self.supports_vision = supports_vision
         self._notice: dict | None = None
+        self._stats: dict = self._empty_stats()
+
+    @staticmethod
+    def _empty_stats() -> dict:
+        return {"model_calls": 0, "total_wait_ms": 0.0, "total_http_ms": 0.0}
 
     def pop_notice(self) -> dict | None:
         """One-shot UI notice set by complete() (e.g. vision fallback)."""
         notice, self._notice = self._notice, None
         return notice
+
+    def pop_stats(self) -> dict:
+        """One-shot timing counters (model_calls, total_wait_ms, total_http_ms)."""
+        stats, self._stats = self._stats, self._empty_stats()
+        return stats
+
+    def _log_request(
+        self,
+        *,
+        status: int | None,
+        attempt: int,
+        http_ms: float,
+        wait_ms: float,
+        resp=None,
+        error: str | None = None,
+    ) -> None:
+        """One telemetry line per HTTP attempt (see core.agent.telemetry)."""
+        usage = None
+        if resp is not None and status is not None and status < 400:
+            try:
+                payload = resp.json()
+            except Exception:  # noqa: BLE001 — non-JSON body just means no usage
+                payload = None
+            if isinstance(payload, dict):
+                usage = payload.get("usage")
+        log_event(
+            "model_request",
+            provider="openai_compat",
+            model=self.model,
+            attempt=attempt,
+            status=status,
+            http_ms=round(http_ms, 1),
+            wait_ms=round(wait_ms, 1),
+            retry_after_s=(resp.headers.get("Retry-After") if resp is not None else None),
+            ratelimit=(_ratelimit_headers(resp) if resp is not None else {}),
+            usage=usage,
+            error=error,
+        )
 
     def _post_chat(
         self,
@@ -134,25 +192,48 @@ class OpenAICompatProvider(ModelProvider):
         Retry-After header when present) and retry rather than aborting the
         task with a raw HTTP error. Retrying stops immediately if the task is
         cancelled, and the final failure surfaces a human message instead of
-        the provider URL.
+        the provider URL. Every attempt is timed and logged for telemetry.
         """
         attempt = 0
+        pending_wait_ms = 0.0
         while True:
-            resp = self._session.post(
-                f"{self.base_url}/chat/completions",
-                json=body,
-                timeout=self.timeout_s,
-                headers=headers,
+            t0 = time.perf_counter()
+            try:
+                resp = self._session.post(
+                    f"{self.base_url}/chat/completions",
+                    json=body,
+                    timeout=self.timeout_s,
+                    headers=headers,
+                )
+            except requests.RequestException as exc:
+                http_ms = (time.perf_counter() - t0) * 1000.0
+                self._stats["model_calls"] += 1
+                self._stats["total_http_ms"] += http_ms
+                self._log_request(
+                    status=None, attempt=attempt, http_ms=http_ms,
+                    wait_ms=pending_wait_ms, error=type(exc).__name__,
+                )
+                raise
+            http_ms = (time.perf_counter() - t0) * 1000.0
+            self._stats["model_calls"] += 1
+            self._stats["total_http_ms"] += http_ms
+            self._log_request(
+                status=resp.status_code, attempt=attempt, http_ms=http_ms,
+                wait_ms=pending_wait_ms, resp=resp,
             )
+            pending_wait_ms = 0.0
             if resp.status_code in _RATE_LIMIT_STATUSES:
                 if attempt >= _MAX_RATE_RETRIES:
                     raise ProviderError(
                         "rate limit reached (429); please wait a moment and retry",
                         error_code="rate_limited",
                     )
+                delay = _rate_limit_delay(resp, attempt)
                 # cancel.wait() doubles as a cancel-aware sleep.
-                if cancel.wait(_rate_limit_delay(resp, attempt)):
+                if cancel.wait(delay):
                     raise ProviderError("cancelled", error_code="cancelled")
+                pending_wait_ms = delay * 1000.0
+                self._stats["total_wait_ms"] += pending_wait_ms
                 attempt += 1
                 continue
             return resp

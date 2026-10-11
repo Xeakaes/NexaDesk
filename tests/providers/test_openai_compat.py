@@ -188,6 +188,18 @@ def _rate_limited():
     )
 
 
+class _RecordingCancel(CancellationToken):
+    """Records requested wait durations without actually sleeping."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.waits: list[float] = []
+
+    def wait(self, timeout: float) -> bool:
+        self.waits.append(timeout)
+        return self.cancelled
+
+
 def test_openai_429_retries_then_succeeds():
     session = ScriptedSession([
         _rate_limited(),
@@ -232,3 +244,95 @@ def test_openai_529_overloaded_is_also_retried():
     r = p.complete(_msgs(), [], CancellationToken())
     assert r.text == "ok"
     assert len(session.posts) == 2
+
+
+def _telemetry_log(tmp_path, monkeypatch):
+    from core.agent import telemetry
+
+    log = tmp_path / "agent.log"
+    monkeypatch.setenv("NEXADESK_TELEMETRY", "1")
+    monkeypatch.setattr(telemetry, "_log_file", lambda: log)
+    return log
+
+
+def _records(log):
+    import json
+
+    return [
+        json.loads(line)
+        for line in log.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def test_rate_limit_retry_logs_each_attempt(tmp_path, monkeypatch):
+    log = _telemetry_log(tmp_path, monkeypatch)
+    session = ScriptedSession([
+        FakeResponse({}, status_code=429, headers={"Retry-After": "0"}),
+        FakeResponse(_payload(content="ok")),
+    ])
+    p = OpenAICompatProvider("http://api", "key", "m", session=session)
+    p.complete(_msgs(), [], _RecordingCancel())
+    recs = [r for r in _records(log) if r["event"] == "model_request"]
+    assert len(recs) == 2
+    first, second = recs
+    assert first["status"] == 429 and first["attempt"] == 0
+    assert first["retry_after_s"] == "0"
+    assert first["wait_ms"] == 0  # nothing had been waited before attempt 0
+    assert second["status"] == 200 and second["attempt"] == 1
+    assert second["wait_ms"] == 0  # Retry-After: 0 honoured — no delay added
+
+
+def test_backoff_wait_is_recorded_before_next_attempt(tmp_path, monkeypatch):
+    log = _telemetry_log(tmp_path, monkeypatch)
+    session = ScriptedSession([
+        FakeResponse({}, status_code=429),  # no Retry-After -> exponential backoff
+        FakeResponse(_payload(content="ok")),
+    ])
+    p = OpenAICompatProvider("http://api", "key", "m", session=session)
+    cancel = _RecordingCancel()
+    p.complete(_msgs(), [], cancel)
+    assert cancel.waits and cancel.waits[0] > 0  # the provider asked us to wait
+    second = [r for r in _records(log) if r["event"] == "model_request"][1]
+    assert second["wait_ms"] > 0  # ...and that wait is visible in telemetry
+
+
+def test_pop_stats_counts_calls_and_wait(tmp_path, monkeypatch):
+    _telemetry_log(tmp_path, monkeypatch)
+    session = ScriptedSession([
+        FakeResponse({}, status_code=429, headers={"Retry-After": "0"}),
+        FakeResponse(_payload(content="ok")),
+    ])
+    p = OpenAICompatProvider("http://api", "key", "m", session=session)
+    p.complete(_msgs(), [], CancellationToken())
+    stats = p.pop_stats()
+    assert stats["model_calls"] == 2
+    assert stats["total_wait_ms"] >= 0
+    assert stats["total_http_ms"] >= 0
+    # One-shot, like pop_notice.
+    assert p.pop_stats() == {"model_calls": 0, "total_wait_ms": 0.0, "total_http_ms": 0.0}
+
+
+def test_model_request_logs_usage_and_ratelimit_headers(tmp_path, monkeypatch):
+    log = _telemetry_log(tmp_path, monkeypatch)
+    payload = _payload(content="hi")
+    payload["usage"] = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    session = ScriptedSession([
+        FakeResponse(payload, headers={"x-ratelimit-remaining-requests": "999"}),
+    ])
+    p = OpenAICompatProvider("http://api", "key", "m", session=session)
+    p.complete(_msgs(), [], CancellationToken())
+    rec = next(r for r in _records(log) if r["event"] == "model_request")
+    assert rec["usage"]["total_tokens"] == 15
+    assert rec["ratelimit"]["x-ratelimit-remaining-requests"] == "999"
+
+
+def test_failed_request_logs_attempt(tmp_path, monkeypatch):
+    log = _telemetry_log(tmp_path, monkeypatch)
+    session = FakeSession(exc=requests.Timeout("slow"))
+    p = OpenAICompatProvider("http://api", "key", "m", session=session)
+    with pytest.raises(ProviderError):
+        p.complete(_msgs(), [], CancellationToken())
+    rec = next(r for r in _records(log) if r["event"] == "model_request")
+    assert rec["error"] == "Timeout"
+    assert rec["status"] is None

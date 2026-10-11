@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 
 from core.agent.cancellation import CancellationToken, TaskCancelled
 from core.agent.config import AgentConfig
+from core.agent.telemetry import log_event
 from core.events import EventBus
 from core.providers.base import ChatMessage, ModelProvider, ProviderError
 from core.session.store import SessionStore
@@ -172,24 +174,32 @@ class AgentRuntime:
 
     def _loop(self, task: _Task) -> None:
         sid, tid = task.session_id, task.task_id
+        started = time.perf_counter()
+        model_calls = 0
+        tool_timings: list[dict] = []
+        outcome = "finished"
+        error_code: str | None = None
         self._events.publish("agent_started", sid, tid, {})
         tool_calls_used = 0
         schemas = self._registry.schemas()
-        if schemas and not self._provider.supports_tools:
-            self._events.publish(
-                "agent_error", sid, tid,
-                {"error_code": "unsupported_capability", "message": "provider has no tool support"},
-            )
-            return
         try:
+            if schemas and not self._provider.supports_tools:
+                outcome, error_code = "error", "unsupported_capability"
+                self._events.publish(
+                    "agent_error", sid, tid,
+                    {"error_code": "unsupported_capability", "message": "provider has no tool support"},
+                )
+                return
             while True:
                 task.token.raise_if_cancelled()
                 messages = self._session.messages(sid)
+                model_calls += 1
                 try:
                     response = self._provider.complete(messages, schemas, task.token)
                 except TaskCancelled:
                     raise
                 except ProviderError as exc:
+                    outcome, error_code = "error", exc.error_code
                     self._events.publish(
                         "agent_error", sid, tid,
                         {"error_code": exc.error_code, "message": exc.message},
@@ -213,6 +223,7 @@ class AgentRuntime:
                 )
                 for index, call in enumerate(response.tool_calls):
                     if task.token.cancelled:
+                        outcome = "cancelled"
                         self._close_tool_batch(
                             task, response.tool_calls, index, "cancelled", "task cancelled"
                         )
@@ -222,6 +233,7 @@ class AgentRuntime:
                         return
                     tool_calls_used += 1
                     if tool_calls_used > self._config.max_tool_calls:
+                        outcome, error_code = "error", "max_tool_calls"
                         self._close_tool_batch(
                             task, response.tool_calls, index,
                             "max_tool_calls", "tool call limit reached",
@@ -240,13 +252,23 @@ class AgentRuntime:
                             error=f"malformed tool arguments: {call.parse_error}",
                             error_code="invalid_arguments",
                         )
+                        tool_timings.append(
+                            {"name": call.name, "ms": 0.0, "ok": False}
+                        )
                     else:
+                        tool_started = time.perf_counter()
                         result = self._run_one_tool(
                             task, call.id, call.name, call.arguments
                         )
+                        tool_timings.append({
+                            "name": call.name,
+                            "ms": round((time.perf_counter() - tool_started) * 1000.0, 1),
+                            "ok": result.ok,
+                        })
                     if task.token.cancelled:
                         # late result discarded — never fed to the model;
                         # write a synthetic result so history stays closed
+                        outcome = "cancelled"
                         self._session.add_message(
                             sid, "tool",
                             _result_content(ToolResult(
@@ -285,7 +307,42 @@ class AgentRuntime:
                             )
                         # No vision: image already stripped from tool content above.
         except TaskCancelled:
+            outcome = "cancelled"
             self._events.publish("agent_cancelled", sid, tid, {"reason": "cancelled"})
+        finally:
+            self._log_task_summary(
+                task, started=started, model_calls=model_calls,
+                tool_timings=tool_timings, outcome=outcome, error_code=error_code,
+            )
+
+    def _log_task_summary(
+        self,
+        task: _Task,
+        *,
+        started: float,
+        model_calls: int,
+        tool_timings: list[dict],
+        outcome: str,
+        error_code: str | None,
+    ) -> None:
+        """One telemetry line per task: where did the time go?"""
+        summary: dict = {
+            "task_id": task.task_id,
+            "session_id": task.session_id,
+            "outcome": outcome,
+            "duration_ms": round((time.perf_counter() - started) * 1000.0, 1),
+            "model_calls": model_calls,
+            "tool_ms_total": round(sum(t["ms"] for t in tool_timings), 1),
+            "tools": tool_timings,
+        }
+        if error_code is not None:
+            summary["error_code"] = error_code
+        pop_stats = getattr(self._provider, "pop_stats", None)
+        if callable(pop_stats):
+            stats = pop_stats()
+            summary["provider_wait_ms"] = stats.get("total_wait_ms", 0.0)
+            summary["provider_http_ms"] = stats.get("total_http_ms", 0.0)
+        log_event("task_summary", **summary)
 
     def _close_tool_batch(
         self,
