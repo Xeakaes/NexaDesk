@@ -57,6 +57,7 @@
     <div class="nav-links">
       <a href="#features">Features</a>
       <a href="#how">How it works</a>
+      <a href="#security">Security</a>
       <a href="#faq">FAQ</a>
     </div>
     <a href="https://github.com/Xeakaes/NexaDesk/releases" class="btn btn-primary">Download</a>
@@ -164,6 +165,46 @@
             </div>
           </li>
         </ol>
+      </div>
+    </section>
+
+    <!-- Security -->
+    <section id="security" class="section">
+      <div class="container">
+        <h2 class="reveal center">Security and privacy</h2>
+        <p class="reveal center section-sub">NexaDesk runs on your machine. Here is exactly what that means for your data and your desktop.</p>
+        <div class="card-grid">
+          <div class="card reveal">
+            <div class="card-icon" aria-hidden="true">◆</div>
+            <h3>Everything stays local</h3>
+            <p>Chat history lives in a local SQLite database and timing logs stay in your config folder. There is no account, no cloud sync, and nothing phones home.</p>
+          </div>
+          <div class="card reveal">
+            <div class="card-icon" aria-hidden="true">⬡</div>
+            <h3>Your keys never leave your disk</h3>
+            <p>API keys are stored in a secrets file that only your user account can read. It is excluded from the repository and from every package we ship.</p>
+          </div>
+          <div class="card reveal">
+            <div class="card-icon" aria-hidden="true">⊙</div>
+            <h3>Screen control is locked down</h3>
+            <p>The control server listens on 127.0.0.1 only. Every request must carry a fresh token that changes on every start, and foreign hosts are rejected outright.</p>
+          </div>
+          <div class="card reveal">
+            <div class="card-icon" aria-hidden="true">✓</div>
+            <h3>You approve every action</h3>
+            <p>Mouse, keyboard, OCR, and window control each wait for your Allow or Deny. Tools you do not list are denied by default, and every tool is tunable in Settings.</p>
+          </div>
+          <div class="card reveal">
+            <div class="card-icon" aria-hidden="true">◎</div>
+            <h3>OCR runs on your device</h3>
+            <p>Text is read from your screen with a bundled ONNX model. Screenshots and recognized text never leave your machine.</p>
+          </div>
+          <div class="card reveal">
+            <div class="card-icon" aria-hidden="true">❖</div>
+            <h3>Open source you can audit</h3>
+            <p>MIT licensed, with every line that touches your screen, keys, or history public on GitHub. Read it, verify it, build it yourself.</p>
+          </div>
+        </div>
       </div>
     </section>
 

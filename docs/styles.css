@@ -214,6 +214,14 @@ h2 {
 }
 h3 { font-size: 18px; line-height: 28px; font-weight: 600; margin: 0 0 8px; }
 p { margin: 0; }
+.section-sub {
+  max-width: 560px;
+  margin: -24px auto 40px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
 
 /* Cards */
 .card-grid {
