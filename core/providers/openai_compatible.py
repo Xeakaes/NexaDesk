@@ -91,7 +91,9 @@ _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 # total_budget_s: hard cap on cumulative waiting inside one request chain.
 # max_retries: attempts after the first 429/529.
 RATE_LIMIT_POLICY: dict[str, dict[str, float]] = {
-    "groq": {"max_wait_s": 30.0, "total_budget_s": 60.0, "max_retries": 3},
+    # max_wait_s 45 honors real Groq bursts (Retry-After 36-39s) in full:
+    # cutting them at 30 only earned a second 429 and a second wait.
+    "groq": {"max_wait_s": 45.0, "total_budget_s": 60.0, "max_retries": 3},
     "github": {"max_wait_s": 30.0, "total_budget_s": 90.0, "max_retries": 3},
 }
 _DEFAULT_RATE_POLICY = {"max_wait_s": 30.0, "total_budget_s": 60.0, "max_retries": 3}

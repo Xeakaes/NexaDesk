@@ -379,9 +379,12 @@ def test_groq_budget_stops_thrash_without_extra_wait():
     assert len(session.posts) == 3
 
 
-def test_groq_retry_after_above_cap_is_capped():
+def test_groq_retry_after_honored_within_cap():
+    # Observed Groq free-tier burst: first 429 asks Retry-After 36-39s. That
+    # value must be waited in full; cutting it at 30s only earned a second
+    # 429 and a second wait on every call.
     session = ScriptedSession([
-        FakeResponse({}, status_code=429, headers={"Retry-After": "45"}),
+        FakeResponse({}, status_code=429, headers={"Retry-After": "37"}),
         FakeResponse(_payload(content="ok")),
     ])
     p = OpenAICompatibleProvider(
@@ -394,7 +397,28 @@ def test_groq_retry_after_above_cap_is_capped():
     cancel = _RecordingCancel()
     r = p.complete(_msgs(), [], cancel)
     assert r.text == "ok"
-    assert cancel.waits == [30.0]  # capped at policy max_wait_s, not 45
+    assert cancel.waits == [37.0]
+    assert len(session.posts) == 2
+
+
+def test_groq_retry_after_above_cap_is_capped():
+    session = ScriptedSession([
+        FakeResponse({}, status_code=429, headers={"Retry-After": "60"}),
+        FakeResponse(_payload(content="ok")),
+    ])
+    p = OpenAICompatibleProvider(
+        "https://api.groq.com/openai/v1",
+        "key",
+        "m",
+        session=session,
+        provider_key="groq",
+    )
+    cancel = _RecordingCancel()
+    r = p.complete(_msgs(), [], cancel)
+    assert r.text == "ok"
+    # Retry-After 60 is cut at the policy cap of 45s. Real Groq bursts ask
+    # 36-39s and must be honored in full, so the cap sits above those.
+    assert cancel.waits == [45.0]
 
 
 class _GetSession:
