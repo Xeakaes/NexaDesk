@@ -39,6 +39,10 @@ from core.paths import assets_dir
 
 ASSETS = assets_dir() / "avatars"
 
+# Bubble sits up-left of the avatar; the same offset is kept while dragging.
+BUBBLE_OFFSET_X = -340
+BUBBLE_OFFSET_Y = -80
+
 
 class _UiSignals(QObject):
     finished = Signal(str)
@@ -93,11 +97,12 @@ class App:
             print(f"screen-control spawn skipped: {exc}", file=sys.stderr)
         self._prefs_path = ui_json_path()
         self.avatar.dragging_changed.connect(self._on_avatar_dragging)
+        self.avatar.drag_moved.connect(self._on_avatar_drag_moved)
         screen = QApplication.primaryScreen().geometry()
         x, y = self._initial_avatar_pos(screen)
         self.avatar.move(x, y)
         self.avatar.show()
-        self.bubble.move(max(0, self.avatar.x() - 340), max(0, self.avatar.y() - 80))
+        self._place_bubble()
         if getattr(self, "_pending_avatar_note", ""):
             self.bubble.append_message("tool", self._pending_avatar_note)
         if self._needs_provider_setup:
@@ -147,6 +152,16 @@ class App:
         else:
             self.bubble.set_tool_activity("")
             save_avatar_pos(self._prefs_path, self.avatar.x(), self.avatar.y())
+
+    def _place_bubble(self) -> None:
+        self.bubble.move(
+            max(0, self.avatar.x() + BUBBLE_OFFSET_X),
+            max(0, self.avatar.y() + BUBBLE_OFFSET_Y),
+        )
+
+    def _on_avatar_drag_moved(self) -> None:
+        # Keep the bubble glued to the avatar while the user drags it.
+        self._place_bubble()
 
     def _make_avatar(self, name: str) -> AvatarWindow:
         from core.paths import user_avatars_dir

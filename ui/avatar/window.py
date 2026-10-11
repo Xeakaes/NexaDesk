@@ -36,6 +36,7 @@ class AvatarWindow(QWidget):
     """
 
     dragging_changed = Signal(bool)
+    drag_moved = Signal()  # emitted on every move while dragging
 
     def __init__(
         self,
@@ -104,6 +105,7 @@ class AvatarWindow(QWidget):
             and event.buttons() & Qt.MouseButton.LeftButton
         ):
             self.move(event.globalPosition().toPoint() - self._drag_offset)
+            self.drag_moved.emit()
             event.accept()
             return
         super().mouseMoveEvent(event)
