@@ -6,15 +6,15 @@
 
 **NexaDesk** is an open-source desktop AI assistant for Linux and Windows: a local-first chat GUI, an animated pixel-art avatar mode, and built-in screen-control tools — all in one PySide6 app.
 
-Run local models with **Ollama**, or connect cloud providers (**Groq, NVIDIA, Google, OpenAI-compatible**). Dark and light themes, Turkish and English UI, instant mode switching.
+Run local models with **Ollama**, or connect cloud providers (**Groq, GitHub Copilot, NVIDIA, Google, OpenAI-compatible**). Dark and light themes, Turkish and English UI, instant mode switching.
 
 ## Why NexaDesk?
 
-- **Chat GUI** — Ollama-style interface with tool calling, SQLite history, right-click chat deletion, and a coral-accent dark/light design
-- **Avatar mode** — pixel-art character with speech bubble and state animations (idle / thinking / working / speaking / error)
-- **Screen control** — screenshot, OCR, mouse/keyboard, window management; the server ships embedded, zero extra install
+- **Chat GUI** — Ollama-style interface with tool calling, SQLite history, selectable transcript, right-click chat deletion, and a coral-accent dark/light design
+- **Avatar mode** — pixel-art character with speech bubble and state animations (idle / thinking / working / speaking / error); the bubble lists your past sessions
+- **Screen control** — screenshot, OCR (bundled on-device engine), mouse/keyboard, window management; the server ships embedded, zero extra install
 - **Local-first** — your keys stay in `config/secrets.json` (never committed); history lives in a local SQLite DB
-- **Provider flexible** — Ollama (fully local), Groq, NVIDIA NIM, Google Gemini, or any OpenAI-compatible endpoint
+- **Provider flexible** — Ollama (fully local), Groq, GitHub Copilot, NVIDIA NIM, Google Gemini, or any OpenAI-compatible endpoint
 - **TR / EN** — full bilingual UI with instant language switching
 
 ## Install
@@ -85,7 +85,7 @@ The screen-control client and server are embedded under `vendor/sc_server/`. Whe
 
 ## Tech stack
 
-Python 3.12 · PySide6 (Qt 6) · SQLite · Pillow · QSS theming · PyInstaller
+Python 3.12 · PySide6 (Qt 6) · SQLite · Pillow · RapidOCR (ONNX) · QSS theming · PyInstaller
 
 ## License
 
@@ -99,15 +99,15 @@ MIT — see [LICENSE](LICENSE).
 
 **NexaDesk**, Linux ve Windows için açık kaynaklı masaüstü AI asistanı: yerel çalışan sohbet arayüzü, animasyonlu piksel-art avatar modu ve yerleşik ekran kontrolü araçları — hepsi tek hafif PySide6 uygulamasında.
 
-Yerel modelleri **Ollama** ile çalıştırın veya bulut sağlayıcılarına bağlanın (**Groq, NVIDIA, Google, OpenAI-uyumlu**). Karanlık/açık tema, Türkçe/İngilizce arayüz, anında mod geçişi.
+Yerel modelleri **Ollama** ile çalıştırın veya bulut sağlayıcılarına bağlanın (**Groq, GitHub Copilot, NVIDIA, Google, OpenAI-uyumlu**). Karanlık/açık tema, Türkçe/İngilizce arayüz, anında mod geçişi.
 
 ## NexaDesk neden?
 
-- **Sohbet (GUI) modu** — tool çağırma, SQLite geçmiş, sağ tıkla sohbet silme, mercan vurgulu karanlık/açık tasarım
-- **Avatar modu** — piksel-art karakter, konuşma balonu ve durum animasyonları (boşta / düşünüyor / çalışıyor / konuşuyor / hata)
-- **Ekran kontrolü** — screenshot, OCR, fare/klavye, pencere yönetimi; sunucu paketin içinde gömülü, ek kurulum yok
+- **Sohbet (GUI) modu** — tool çağırma, SQLite geçmiş, seçilebilir sohbet metni, sağ tıkla sohbet silme, mercan vurgulu karanlık/açık tasarım
+- **Avatar modu** — piksel-art karakter, konuşma balonu ve durum animasyonları (boşta / düşünüyor / çalışıyor / konuşuyor / hata); balon eski oturumlarınızı listeler
+- **Ekran kontrolü** — screenshot, OCR (paket içinde yerel motor), fare/klavye, pencere yönetimi; sunucu paketin içinde gömülü, ek kurulum yok
 - **Yerel öncelikli** — anahtarlarınız `config/secrets.json`'da kalır (asla commit edilmez); geçmiş yerel SQLite DB'de
-- **Sağlayıcı esnekliği** — Ollama (tamamen yerel), Groq, NVIDIA NIM, Google Gemini veya OpenAI-uyumlu herhangi bir uç nokta
+- **Sağlayıcı esnekliği** — Ollama (tamamen yerel), Groq, GitHub Copilot, NVIDIA NIM, Google Gemini veya OpenAI-uyumlu herhangi bir uç nokta
 - **TR / EN** — tam iki dilli arayüz, anında dil değişimi
 
 ## Kurulum
@@ -178,7 +178,7 @@ Ekran kontrolü istemcisi ve sunucusu `vendor/sc_server/` altında gömülüdür
 
 ## Teknoloji yığını
 
-Python 3.12 · PySide6 (Qt 6) · SQLite · Pillow · QSS temalama · PyInstaller
+Python 3.12 · PySide6 (Qt 6) · SQLite · Pillow · RapidOCR (ONNX) · QSS temalama · PyInstaller
 
 ## Lisans
 
