@@ -6,4 +6,5 @@ Pillow>=10.0
 requests>=2.31
 pyvda>=0.4; sys_platform == "win32"
 evdev>=1.3; sys_platform == "linux"
+rapidocr_onnxruntime>=1.3
 pyinstaller>=6.0

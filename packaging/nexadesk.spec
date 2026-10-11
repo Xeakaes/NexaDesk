@@ -5,6 +5,8 @@ import os
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_all
+
 block_cipher = None
 ROOT = Path(SPECPATH).resolve().parent
 
@@ -17,6 +19,21 @@ datas = [
 ]
 if (ROOT / "_version.txt").exists():
     datas.append((str(ROOT / "_version.txt"), "."))
+
+binaries = []
+extra_hiddenimports = []
+
+# rapidocr_onnxruntime is imported lazily in vendor/sc_server/server.py, so
+# static analysis misses it; collect the engine, its models, and the ONNX
+# runtime explicitly or packaged builds serve "OCR engine not installed".
+_ocr_datas, _ocr_binaries, _ocr_hidden = collect_all("rapidocr_onnxruntime")
+datas += _ocr_datas
+binaries += _ocr_binaries
+extra_hiddenimports += _ocr_hidden
+_ort_datas, _ort_binaries, _ort_hidden = collect_all("onnxruntime")
+datas += _ort_datas
+binaries += _ort_binaries
+extra_hiddenimports += _ort_hidden
 
 hiddenimports = [
     "vendor.sc_server.sdk",
@@ -33,6 +50,7 @@ hiddenimports = [
     "numpy",
     "requests",
 ]
+hiddenimports += extra_hiddenimports
 
 if sys.platform.startswith("linux"):
     hiddenimports += ["evdev", "vendor.sc_server.sc_backends.linux"]
@@ -44,7 +62,7 @@ elif sys.platform == "darwin":
 a = Analysis(
     [str(ROOT / "app_entry" / "entry.py")],
     pathex=[str(ROOT)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
