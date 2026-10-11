@@ -30,6 +30,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "chat.input_placeholder": {"tr": "Mesaj yazın…", "en": "Type a message…"},
     "chat.send": {"tr": "Gönder", "en": "Send"},
     "chat.cancel": {"tr": "İptal", "en": "Cancel"},
+    "chat.history": {"tr": "Geçmiş", "en": "History"},
     "chat.tool_activity": {"tr": "Araç etkinliği", "en": "Tool activity"},
     "chat.user_prefix": {"tr": "Sen", "en": "You"},
     "chat.assistant_prefix": {"tr": "Asistan", "en": "Assistant"},

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -25,6 +27,7 @@ class BubbleWindow(QFrame):
         self,
         on_send: Callable[[str], None],
         on_cancel: Callable[[], None],
+        on_history: Callable[[], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -38,6 +41,8 @@ class BubbleWindow(QFrame):
 
         self._on_send = on_send
         self._on_cancel = on_cancel
+        self._on_history = on_history
+        self._session_picker: QListWidget | None = None
 
         self._transcript = QPlainTextEdit(self)
         self._transcript.setReadOnly(True)
@@ -52,6 +57,9 @@ class BubbleWindow(QFrame):
 
         self._send_btn = QPushButton(self)
         self._send_btn.clicked.connect(self._send)
+        self._history_btn = QPushButton(self)
+        if self._on_history is not None:
+            self._history_btn.clicked.connect(self._on_history)
         self._cancel_btn = QPushButton(self)
         self._cancel_btn.clicked.connect(self._on_cancel)
         self._cancel_btn.setVisible(False)
@@ -59,6 +67,7 @@ class BubbleWindow(QFrame):
         row = QHBoxLayout()
         row.addWidget(self._input, 1)
         row.addWidget(self._send_btn)
+        row.addWidget(self._history_btn)
         row.addWidget(self._cancel_btn)
 
         layout = QVBoxLayout(self)
@@ -75,6 +84,7 @@ class BubbleWindow(QFrame):
     def retranslate(self) -> None:
         self._input.setPlaceholderText(i18n.t("chat.input_placeholder"))
         self._send_btn.setText(i18n.t("chat.send"))
+        self._history_btn.setText(i18n.t("chat.history"))
         self._cancel_btn.setText(i18n.t("chat.cancel"))
 
     def append_message(self, role: str, text: str) -> None:
@@ -85,9 +95,49 @@ class BubbleWindow(QFrame):
         }.get(role, role)
         self._transcript.appendPlainText(f"{prefix} {text}")
 
+    def set_transcript(self, text: str) -> None:
+        self._transcript.setPlainText(text)
+
+    def show_session_picker(
+        self,
+        sessions: list[tuple[str, str]],
+        on_pick: Callable[[str], None],
+    ) -> None:
+        self._close_session_picker()
+        picker = QListWidget(self)
+        picker.setObjectName("session_picker")
+        picker.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        picker.setFixedSize(240, 200)
+        for sid, title in sessions:
+            item = QListWidgetItem(title or sid[:8], picker)
+            item.setData(Qt.ItemDataRole.UserRole, sid)
+
+        def _pick(item: QListWidgetItem) -> None:
+            on_pick(item.data(Qt.ItemDataRole.UserRole))
+            self._close_session_picker()
+
+        picker.itemClicked.connect(_pick)
+        self._session_picker = picker
+        picker.move(self.mapToGlobal(QPoint(0, self.height())))
+        picker.show()
+
+    def _close_session_picker(self) -> None:
+        if self._session_picker is not None:
+            self._session_picker.close()
+            self._session_picker = None
+
+    def hideEvent(self, event) -> None:
+        self._close_session_picker()
+        super().hideEvent(event)
+
     def set_busy(self, busy: bool) -> None:
         self._input.setEnabled(not busy)
         self._send_btn.setEnabled(not busy)
+        self._history_btn.setEnabled(not busy)
         self._cancel_btn.setVisible(busy)
         self._cancel_btn.setEnabled(busy)
 

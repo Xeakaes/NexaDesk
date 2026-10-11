@@ -79,7 +79,11 @@ class App:
         self._sid: str | None = None  # created lazily on first send
         avatar_name = self._settings_cache.get("avatar", "base")
         self.avatar = self._make_avatar(avatar_name)
-        self.bubble = BubbleWindow(on_send=self._on_send, on_cancel=self._on_cancel)
+        self.bubble = BubbleWindow(
+            on_send=self._on_send,
+            on_cancel=self._on_cancel,
+            on_history=self._on_history,
+        )
         self.settings_win = SettingsWindow(self.settings_path, self.secrets_path)
         saved = getattr(self.settings_win, "saved", None)
         if saved is not None:
@@ -186,6 +190,27 @@ class App:
         self._history.append(self._sid, "user", text)
         self.bubble.set_busy(True)
         threading.Thread(target=self._run_agent, args=(text,), daemon=True).start()
+
+    def _on_history(self) -> None:
+        sessions = [
+            (sid, title) for sid, title, _created in self._history.list_sessions()
+        ]
+        self.bubble.show_session_picker(sessions, self._on_session_chosen)
+
+    def _on_session_chosen(self, sid: str) -> None:
+        self._sid = sid
+        lines = []
+        for role, content, tool_name in self._history.messages(sid):
+            if role == "tool":
+                lines.append(f"{tool_name or 'tool'}: {content}")
+            else:
+                prefix = (
+                    i18n.t("chat.user_prefix")
+                    if role == "user"
+                    else i18n.t("chat.assistant_prefix")
+                )
+                lines.append(f"{prefix}: {content}")
+        self.bubble.set_transcript("\n".join(lines))
 
     def _run_agent(self, text: str) -> None:
         try:
