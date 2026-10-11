@@ -196,3 +196,110 @@ def test_build_pack_runs_on_background_thread(tmp_path, monkeypatch):
     assert (cfg / "avatars" / "worker" / "manifest.json").is_file()
     win.hide()
     win.deleteLater()
+
+
+def test_model_field_is_editable_dropdown(tmp_path):
+    from PySide6.QtWidgets import QApplication, QComboBox
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    assert isinstance(win._provider_model, QComboBox)
+    assert win._provider_model.isEditable()
+    win.hide()
+    win.deleteLater()
+
+
+def test_fetch_models_populates_dropdown_and_keeps_current(tmp_path, monkeypatch):
+    import threading
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    secrets.write_text('{"screen_control_api_key": "k", "groq_api_key": "gsk_x"}')
+
+    class StubProvider:
+        def list_models(self):
+            return ["m/zeta", "m/alpha"]
+
+    monkeypatch.setattr(
+        "core.providers.create_provider", lambda *a, **k: StubProvider()
+    )
+
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._provider_type.setCurrentText("groq")
+    win._provider_model.setCurrentText("typed-by-user")
+    win._fetch_models()
+    assert win._model_worker is not None
+    assert win._model_worker.wait(5000), "model fetch worker did not finish"
+    for _ in range(50):
+        app.processEvents()
+        if win._btn_refresh_models.isEnabled():
+            break
+        threading.Event().wait(0.05)
+    items = [win._provider_model.itemText(i) for i in range(win._provider_model.count())]
+    # Ordering/sorting is the provider's job (covered in provider tests);
+    # the UI inserts whatever the catalog returns.
+    assert items == ["m/zeta", "m/alpha"]
+    # The user's value survives the catalog refresh.
+    assert win._provider_model.currentText() == "typed-by-user"
+    assert win._btn_refresh_models.isEnabled()
+    win.hide()
+    win.deleteLater()
+
+
+def test_fetch_models_failure_reenables_button(tmp_path, monkeypatch):
+    import threading
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+
+    class BoomProvider:
+        def list_models(self):
+            raise RuntimeError("nope")
+
+    monkeypatch.setattr(
+        "core.providers.create_provider", lambda *a, **k: BoomProvider()
+    )
+
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._fetch_models()
+    assert win._model_worker.wait(5000)
+    for _ in range(50):
+        app.processEvents()
+        if win._btn_refresh_models.isEnabled():
+            break
+        threading.Event().wait(0.05)
+    assert win._btn_refresh_models.isEnabled()
+    win.hide()
+    win.deleteLater()
+
+
+def test_save_uses_combo_current_text(tmp_path):
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._provider_model.setCurrentText("my-hand-typed-model")
+    win.save()
+    data = json.loads(settings.read_text())
+    assert data["provider"]["model"] == "my-hand-typed-model"
+    win.hide()
+    win.deleteLater()

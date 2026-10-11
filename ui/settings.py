@@ -31,7 +31,20 @@ from ui.i18n import i18n, language_bridge
 from ui.paths import SECRETS_PATH, SETTINGS_PATH, ui_json_path
 from ui.prefs import THEMES, load_prefs, save_prefs, UiPrefs
 
-PROVIDER_TYPES = ["ollama", "openai_compat", "nvidia", "groq", "google", "nararouter"]
+PROVIDER_TYPES = [
+    "ollama",
+    "openai_compatible",
+    "github",
+    "nvidia",
+    "groq",
+    "google",
+    "deepseek",
+    "mistral",
+    "xai",
+    "together",
+    "openrouter",
+    "nararouter",
+]
 PERMISSION_LEVELS = ["allow", "ask", "deny"]
 KNOWN_TOOLS = [
     "screenshot",
@@ -42,10 +55,16 @@ KNOWN_TOOLS = [
     "focus_window",
 ]
 PROVIDER_KEY_SECRETS = {
-    "openai_compat": "api_key",
+    "openai_compatible": "api_key",
+    "github": "github_api_key",
     "nvidia": "nvidia_api_key",
     "groq": "groq_api_key",
     "google": "google_api_key",
+    "deepseek": "deepseek_api_key",
+    "mistral": "mistral_api_key",
+    "xai": "xai_api_key",
+    "together": "together_api_key",
+    "openrouter": "openrouter_api_key",
     "nararouter": "nararouter_api_key",
 }
 
@@ -93,6 +112,47 @@ class _PackBuildWorker:
             self.signals.failed.emit(self._name, "error")
         else:
             self.signals.succeeded.emit(self._name)
+
+
+class _ModelListSignals(QObject):
+    """Signal carrier living on the UI thread; safe to emit from any thread."""
+
+    finished = Signal(list)  # model ids
+    failed = Signal()
+
+
+class _ModelListWorker:
+    """Fetches the provider's model catalog on a plain background thread.
+
+    Same pattern as _PackBuildWorker: a plain threading.Thread (no QThread
+    teardown race) emitting through a UI-thread-affine QObject, so the
+    Settings window never blocks on a network round-trip.
+    """
+
+    def __init__(self, settings: dict, secrets: dict) -> None:
+        self.signals = _ModelListSignals()
+        self._settings = settings
+        self._secrets = secrets
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def wait(self, ms: int = 5000) -> bool:
+        """Join the worker thread; True if it finished within the timeout."""
+        self._thread.join(timeout=ms / 1000.0)
+        return not self._thread.is_alive()
+
+    def _run(self) -> None:
+        try:
+            from core.providers import create_provider
+
+            provider = create_provider(self._settings, self._secrets)
+            models = provider.list_models()
+        except Exception:  # noqa: BLE001 — bad key/network: keep the dropdown usable
+            self.signals.failed.emit()
+        else:
+            self.signals.finished.emit(list(models))
 
 
 def merge_permissions(existing: dict, default: str, per_tool: dict) -> dict:
@@ -143,7 +203,16 @@ class SettingsWindow(QWidget):
         self._provider_type = QComboBox(self)
         self._provider_type.addItems(PROVIDER_TYPES)
         self._provider_url = QLineEdit(self)
-        self._provider_model = QLineEdit(self)
+        # Editable dropdown: picks from the provider catalog, still accepts a
+        # hand-typed model id when the catalog fetch fails or lacks it.
+        self._provider_model = QComboBox(self)
+        self._provider_model.setEditable(True)
+        self._btn_refresh_models = QPushButton(self)
+        model_row = QWidget(self)
+        model_layout = QHBoxLayout(model_row)
+        model_layout.setContentsMargins(0, 0, 0, 0)
+        model_layout.addWidget(self._provider_model, 1)
+        model_layout.addWidget(self._btn_refresh_models)
         self._provider_key = QLineEdit(self)
         self._provider_key.setEchoMode(QLineEdit.EchoMode.Password)
         provider_form = QFormLayout()
@@ -153,10 +222,13 @@ class SettingsWindow(QWidget):
         self._lbl_provider_key = QLabel(self)
         provider_form.addRow(self._lbl_provider_type, self._provider_type)
         provider_form.addRow(self._lbl_provider_url, self._provider_url)
-        provider_form.addRow(self._lbl_provider_model, self._provider_model)
+        provider_form.addRow(self._lbl_provider_model, model_row)
         provider_form.addRow(self._lbl_provider_key, self._provider_key)
         provider_box = QGroupBox(self)
         provider_box.setLayout(provider_form)
+        self._model_worker: _ModelListWorker | None = None
+        self._btn_refresh_models.clicked.connect(self._fetch_models)
+        self._provider_type.currentTextChanged.connect(self._on_provider_type_changed)
 
         # --- screen control section ---
         self._sc_host = QLineEdit(self)
@@ -270,6 +342,7 @@ class SettingsWindow(QWidget):
         self._lbl_provider_type.setText(t("settings.provider_type"))
         self._lbl_provider_url.setText(t("settings.provider_url"))
         self._lbl_provider_model.setText(t("settings.provider_model"))
+        self._btn_refresh_models.setText(t("settings.refresh_models"))
         self._lbl_provider_key.setText(t("settings.provider_key"))
         self._lbl_sc_host.setText(t("settings.sc_host"))
         self._lbl_sc_port.setText(t("settings.sc_port"))
@@ -290,6 +363,45 @@ class SettingsWindow(QWidget):
         self._tabs.setTabText(3, t("settings.section_permissions"))
         self._tabs.setTabText(4, t("settings.section_avatar"))
 
+    def _on_provider_type_changed(self) -> None:
+        # Secret key name follows the provider; then refetch the catalog.
+        key_name = PROVIDER_KEY_SECRETS.get(self._provider_type.currentText(), "api_key")
+        secrets = self._read(self._secrets_path)
+        self._provider_key.setText(str(secrets.get(key_name, "")))
+        self._fetch_models()
+
+    def _fetch_models(self) -> None:
+        """Fill the model dropdown from the provider catalog (background)."""
+        ptype = self._provider_type.currentText()
+        key_name = PROVIDER_KEY_SECRETS.get(ptype, "api_key")
+        secrets = self._read(self._secrets_path)
+        key_value = self._provider_key.text().strip()
+        if key_value:
+            secrets[key_name] = key_value
+        settings = self._read(self._settings_path)
+        settings["provider"] = {
+            "type": ptype,
+            "url": self._provider_url.text().strip(),
+            "model": self._provider_model.currentText().strip(),
+        }
+        self._btn_refresh_models.setEnabled(False)
+        self._model_worker = _ModelListWorker(settings, secrets)
+        self._model_worker.signals.finished.connect(self._on_models_loaded)
+        self._model_worker.signals.failed.connect(self._on_models_failed)
+        self._model_worker.start()
+
+    def _on_models_loaded(self, models: list) -> None:
+        self._btn_refresh_models.setEnabled(True)
+        current = self._provider_model.currentText().strip()
+        self._provider_model.clear()
+        self._provider_model.addItems(models)
+        if current:
+            # Keep whatever the user had (typed or selected) as the value.
+            self._provider_model.setCurrentText(current)
+
+    def _on_models_failed(self) -> None:
+        self._btn_refresh_models.setEnabled(True)
+
     def load(self) -> None:
         settings = self._read(self._settings_path)
         secrets = self._read(self._secrets_path)
@@ -298,12 +410,19 @@ class SettingsWindow(QWidget):
         self._theme.setCurrentIndex(list(THEMES).index(prefs.theme))
         self._mode.setCurrentIndex(0 if (prefs.mode or "gui") == "gui" else 1)
         provider = settings.get("provider") or {}
-        idx = self._provider_type.findText(provider.get("type", "ollama"))
+        ptype_saved = provider.get("type", "ollama")
+        if ptype_saved == "openai_compat":  # legacy value, pre-rename
+            ptype_saved = "openai_compatible"
+        self._provider_type.blockSignals(True)
+        idx = self._provider_type.findText(ptype_saved)
         self._provider_type.setCurrentIndex(max(0, idx))
+        self._provider_type.blockSignals(False)
         self._provider_url.setText(provider.get("url", ""))
-        self._provider_model.setText(provider.get("model", ""))
+        self._provider_model.setCurrentText(provider.get("model", ""))
         key_name = PROVIDER_KEY_SECRETS.get(self._provider_type.currentText(), "api_key")
         self._provider_key.setText(str(secrets.get(key_name, "")))
+        if secrets.get(key_name):
+            self._fetch_models()
         sc = settings.get("screen_control") or {}
         self._sc_host.setText(sc.get("host", "127.0.0.1"))
         self._sc_port.setValue(int(sc.get("port", 8745)))
@@ -332,7 +451,7 @@ class SettingsWindow(QWidget):
                 self._status.setText(i18n.t("settings.pack_bad_image"))
                 return
         ptype = self._provider_type.currentText()
-        provider = {"type": ptype, "model": self._provider_model.text().strip()}
+        provider = {"type": ptype, "model": self._provider_model.currentText().strip()}
         url = self._provider_url.text().strip()
         if url:
             provider["url"] = url
