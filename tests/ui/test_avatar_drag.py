@@ -80,11 +80,56 @@ def test_bubble_tracks_avatar_during_drag(tmp_path, monkeypatch):
     from tests.ui.test_avatar_app import _make_app
 
     app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui.bubble.resize(340, 240)
     ui.avatar.move(500, 400)
     ui.avatar.drag_moved.emit()
-    assert ui.bubble.pos() == QPoint(500 - 340, 400 - 80)
+    assert ui.bubble.pos() == QPoint(500 - 340 - 16, 400 - 80)
     # Clamped to the screen: never a negative position.
     ui.avatar.move(-500, -500)
     ui.avatar.drag_moved.emit()
     assert ui.bubble.pos() == QPoint(0, 0)
+    ui.close()
+
+
+def test_bubble_flips_to_right_when_left_has_no_room(tmp_path, monkeypatch):
+    """Near the left screen edge the bubble must move to the avatar's right."""
+    from tests.ui.test_avatar_app import _make_app
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui.bubble.resize(340, 240)
+    ui.avatar.move(100, 300)
+    ui.avatar.drag_moved.emit()
+
+    av_right = 100 + ui.avatar.width()
+    assert ui.bubble.x() == av_right + 16
+    assert ui.bubble.x() >= av_right, "no overlap when flipped right"
+    ui.close()
+
+
+def test_bubble_returns_left_when_room_reappears(tmp_path, monkeypatch):
+    """Moving away from the left edge puts the bubble back on the left."""
+    from tests.ui.test_avatar_app import _make_app
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui.bubble.resize(340, 240)
+    ui.avatar.move(100, 300)
+    ui.avatar.drag_moved.emit()
+    assert ui.bubble.x() > ui.avatar.x(), "starts flipped right"
+
+    ui.avatar.move(700, 300)
+    ui.avatar.drag_moved.emit()
+    assert ui.bubble.x() == 700 - 340 - 16
+    ui.close()
+
+
+def test_wide_bubble_still_never_overlaps_avatar(tmp_path, monkeypatch):
+    """A bubble wider than the old 340px offset must keep a clear gap."""
+    from tests.ui.test_avatar_app import _make_app
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui.bubble.resize(500, 240)
+    ui.avatar.move(800, 300)
+    ui.avatar.drag_moved.emit()
+
+    assert ui.bubble.x() + ui.bubble.width() <= ui.avatar.x() - 16
     ui.close()

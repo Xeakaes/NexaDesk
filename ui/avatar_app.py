@@ -40,8 +40,8 @@ from core.paths import assets_dir
 ASSETS = assets_dir() / "avatars"
 
 # Bubble sits up-left of the avatar; the same offset is kept while dragging.
-BUBBLE_OFFSET_X = -340
 BUBBLE_OFFSET_Y = -80
+BUBBLE_GAP = 16
 
 
 class _UiSignals(QObject):
@@ -158,10 +158,18 @@ class App:
             save_avatar_pos(self._prefs_path, self.avatar.x(), self.avatar.y())
 
     def _place_bubble(self) -> None:
-        self.bubble.move(
-            max(0, self.avatar.x() + BUBBLE_OFFSET_X),
-            max(0, self.avatar.y() + BUBBLE_OFFSET_Y),
-        )
+        av_x, av_y = self.avatar.x(), self.avatar.y()
+        av_w = self.avatar.width()
+        bw = self.bubble.width() or 320
+        # Left of the avatar when the bubble fits with a clear gap; near the
+        # left screen edge there is no room, so flip to the avatar's right
+        # and come back left as soon as the avatar moves away again.
+        if av_x - bw - BUBBLE_GAP >= 0:
+            bx = av_x - bw - BUBBLE_GAP
+        else:
+            bx = av_x + av_w + BUBBLE_GAP
+        by = max(0, av_y + BUBBLE_OFFSET_Y)
+        self.bubble.move(max(0, bx), by)
 
     def _on_avatar_drag_moved(self) -> None:
         # Keep the bubble glued to the avatar while the user drags it.
