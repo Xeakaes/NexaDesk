@@ -389,6 +389,10 @@ class ChatWindow(QMainWindow):
         frame.setObjectName(name)
         lbl = QLabel(text, frame)
         lbl.setWordWrap(True)
+        lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
         lay = QHBoxLayout(frame)
         lay.addWidget(lbl)
         self._msg_layout.insertWidget(self._msg_layout.count() - 1, frame)

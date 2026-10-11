@@ -400,3 +400,22 @@ def test_confirm_delete_session_builds_dialog_with_danger_button():
     assert danger is not None and danger.objectName() == "danger"
     assert cancel is not None and cancel.objectName() == "outline"
     dlg.deleteLater()
+
+
+def test_chat_messages_are_text_selectable(tmp_path):
+    """Chat transcript labels must allow mouse/keyboard selection (copy)."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QLabel
+
+    app, win = _make_window(tmp_path)
+    win._append("user", "selam dunya")
+    win._append("assistant", "merhaba")
+    labels = [
+        w for w in win._msg_area.findChildren(QLabel) if w.text() in ("selam dunya", "merhaba")
+    ]
+    assert len(labels) == 2
+    for lbl in labels:
+        flags = lbl.textInteractionFlags()
+        assert flags & Qt.TextInteractionFlag.TextSelectableByMouse
+        assert flags & Qt.TextInteractionFlag.TextSelectableByKeyboard
+    win.hide()
