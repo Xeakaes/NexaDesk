@@ -74,3 +74,26 @@ def test_every_runtime_requirement_is_bundled():
             f"{req} ({import_name}) is not bundled: add it to the spec "
             f"hiddenimports/collect_all or to _DEV_ONLY"
         )
+
+
+# Documented asset name -> file that must produce that exact name.
+_ASSET_NAMES = [
+    ("NexaDesk_<version>_amd64.deb", "packaging/build_linux.sh"),
+    ("NexaDesk_<version>_linux_amd64.tar.gz", "packaging/build_linux.sh"),
+    ("NexaDesk_<version>_windows_x64.zip", ".github/workflows/release.yml"),
+]
+
+
+def test_readme_asset_names_match_packaging_outputs():
+    """README download names must match what the packaging actually emits."""
+    readme = (ROOT / "README.md").read_text()
+    for name, producer in _ASSET_NAMES:
+        assert name in readme, f"README must document the asset {name}"
+        produced = (ROOT / producer).read_text()
+        candidates = (
+            name.replace("<version>", "${APP_VERSION}"),
+            name.replace("<version>", "${env:APP_VERSION}"),
+        )
+        assert any(c in produced for c in candidates), (
+            f"{producer} must emit {name}; found none of {candidates}"
+        )
