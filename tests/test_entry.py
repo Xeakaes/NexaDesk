@@ -114,14 +114,17 @@ def test_server_healthy_true_on_200(monkeypatch):
     assert entry._server_healthy("127.0.0.1", 8745) is True
 
 
-def test_server_healthy_true_on_401(monkeypatch):
+def test_server_healthy_false_on_401(monkeypatch):
+    # A server that answers but rejects the token the app will use (e.g. a
+    # leftover dev server with its own session token) cannot serve any tool
+    # call - it must be replaced, not reused.
     import urllib.error
 
     def raise401(*a, **k):
         raise urllib.error.HTTPError("http://x", 401, "no", None, None)
 
     monkeypatch.setattr(entry.urllib.request, "urlopen", raise401)
-    assert entry._server_healthy("127.0.0.1", 8745) is True
+    assert entry._server_healthy("127.0.0.1", 8745) is False
 
 
 def test_server_healthy_false_on_500(monkeypatch):

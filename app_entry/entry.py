@@ -64,13 +64,15 @@ def _screen_control_token() -> str | None:
 
 
 def _server_healthy(host: str, port: int) -> bool:
-    """True when the server on the port answers without a server-side error.
+    """True only when the server accepts the token the app will actually use.
 
-    A stale server left over from a previous install (or a bad shutdown) can
-    still hold the port while failing every capture call with 500; blindly
-    reusing it would silently break screenshot/OCR. Any 4xx means the HTTP
-    stack is fine (we may just lack the token), so only 5xx or a dead socket
-    count as unhealthy.
+    Three failure modes are all unusable and must trigger a replace:
+    - a stale server that 500s on its capture endpoints (reinstall/bad
+      shutdown), and
+    - a server that answers but rejects our credentials (401) - e.g. a
+      leftover dev server holding the port with its own session token; every
+      tool call would 401, so reusing it silently breaks the app.
+    Only an authenticated 200 counts as healthy.
     """
     req = urllib.request.Request(
         f"http://{host}:{port}/api/info",
@@ -78,10 +80,8 @@ def _server_healthy(host: str, port: int) -> bool:
     )
     try:
         with urllib.request.urlopen(req, timeout=1.0) as resp:
-            return resp.status < 500
-    except urllib.error.HTTPError as exc:
-        return exc.code < 500
-    except (urllib.error.URLError, OSError):
+            return resp.status == 200
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError):
         return False
 
 
