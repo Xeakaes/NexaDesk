@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -41,6 +42,10 @@ def load_secrets(path: Path) -> dict:
 
 
 def ensure_secrets_mode(path: Path) -> None:
+    if os.name != "posix":
+        # Windows has no POSIX mode bits (every file reports 0o666);
+        # protection there comes from NTFS ACLs, not chmod.
+        return
     mode = stat.S_IMODE(Path(path).stat().st_mode)
     if mode != 0o600:
         raise ConfigError(f"secrets file {path} must have mode 0600, got {oct(mode)}")
