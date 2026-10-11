@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -85,8 +86,24 @@ def _server_healthy(host: str, port: int) -> bool:
         return False
 
 
-def _kill_stale_server(port: int) -> None:
-    """Best-effort terminate a leftover screen-control process on the port."""
+def _port_owner_pids(port: int) -> list[int]:
+    """PIDs listening on the port, via ss (matches any binary holding it)."""
+    try:
+        out = subprocess.run(
+            ["ss", "-lptnH", f"sport = :{port}"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    pids = {int(p) for p in re.findall(r"pid=(\d+)", out.stdout)}
+    return sorted(p for p in pids if p != os.getpid())
+
+
+def _pattern_pids(port: int) -> list[int]:
+    """PIDs of leftover frozen spawns (cmdline fallback when ss is missing)."""
     pattern = rf"serve-screen-control.*--port[= ]{port}\b"
     try:
         out = subprocess.run(
@@ -96,13 +113,26 @@ def _kill_stale_server(port: int) -> None:
             timeout=3,
             check=False,
         )
-        pids = [
-            int(p)
-            for p in out.stdout.split()
-            if p.isdigit() and int(p) != os.getpid()
-        ]
     except (OSError, subprocess.TimeoutExpired):
-        return
+        return []
+    return [
+        int(p)
+        for p in out.stdout.split()
+        if p.isdigit() and int(p) != os.getpid()
+    ]
+
+
+def _kill_stale_server(port: int) -> None:
+    """Best-effort terminate whatever holds the screen-control port.
+
+    Kills by port owner (ss) first so a leftover dev server
+    (`python -m vendor.sc_server.server`, which has no
+    `--serve-screen-control` in its cmdline) is replaced too; falls back to
+    the spawn cmdline pattern when ss is unavailable. Called only after the
+    health check already rejected the server, so anything on the port is
+    unusable by definition.
+    """
+    pids = _port_owner_pids(port) or _pattern_pids(port)
     for sig in (signal.SIGTERM, signal.SIGKILL):
         alive = []
         for pid in pids:

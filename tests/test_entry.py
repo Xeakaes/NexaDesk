@@ -147,6 +147,52 @@ def test_server_healthy_false_on_dead_socket(monkeypatch):
     assert entry._server_healthy("127.0.0.1", 8745) is False
 
 
+def test_kill_stale_server_kills_port_owner(monkeypatch):
+    # A leftover dev server (`python -m vendor.sc_server.server`) has no
+    # `--serve-screen-control` in its cmdline, so the cmdline pattern never
+    # matches it; killing by port owner (ss) replaces whatever holds the port.
+    import signal
+    import types
+
+    ss_out = (
+        'LISTEN 0 128 127.0.0.1:8745 0.0.0.0:* '
+        'users:(("python3",pid=4242,fd=3))\n'
+    )
+    monkeypatch.setattr(
+        entry.subprocess,
+        "run",
+        lambda *a, **k: types.SimpleNamespace(stdout=ss_out, returncode=0),
+    )
+    killed = []
+    monkeypatch.setattr(entry.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr(entry.time, "sleep", lambda s: None)
+    monkeypatch.setattr(entry.os.path, "exists", lambda p: False)
+    entry._kill_stale_server(8745)
+    assert killed == [(4242, signal.SIGTERM)]
+
+
+def test_kill_stale_server_falls_back_to_pattern(monkeypatch):
+    import signal
+    import types
+
+    calls = []
+
+    def fake_run(cmd, **k):
+        calls.append(cmd)
+        if cmd[0] == "ss":
+            return types.SimpleNamespace(stdout="", returncode=1)
+        return types.SimpleNamespace(stdout="4242\n", returncode=0)
+
+    monkeypatch.setattr(entry.subprocess, "run", fake_run)
+    killed = []
+    monkeypatch.setattr(entry.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr(entry.time, "sleep", lambda s: None)
+    monkeypatch.setattr(entry.os.path, "exists", lambda p: False)
+    entry._kill_stale_server(8745)
+    assert killed == [(4242, signal.SIGTERM)]
+    assert [c[0] for c in calls] == ["ss", "pgrep"]
+
+
 def test_spawn_frozen_passes_host_port(monkeypatch, tmp_path):
     def boom(*a, **k):
         raise OSError("closed")
