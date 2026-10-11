@@ -436,3 +436,20 @@ def test_list_models_empty_on_network_error():
         "https://api.example.com/v1", "k", "m", session=sess
     )
     assert p.list_models() == []
+
+
+def test_openai_401_maps_unauthorized():
+    session = FakeSession(FakeResponse({}, status_code=401))
+    p = OpenAICompatibleProvider("http://api", "key", "model", session=session)
+    with pytest.raises(ProviderError) as ei:
+        p.complete(_msgs(), [], CancellationToken())
+    assert ei.value.error_code == "unauthorized"
+    assert "Settings" in ei.value.message
+
+
+def test_openai_403_maps_unauthorized():
+    session = FakeSession(FakeResponse({}, status_code=403))
+    p = OpenAICompatibleProvider("http://api", "key", "model", session=session)
+    with pytest.raises(ProviderError) as ei:
+        p.complete(_msgs(), [], CancellationToken())
+    assert ei.value.error_code == "unauthorized"

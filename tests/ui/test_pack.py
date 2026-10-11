@@ -111,3 +111,31 @@ def test_delete_pack_rejects_path_traversal(tmp_path):
     with pytest.raises(PackError):
         delete_pack(avatars, "..")
     assert outside.exists()
+
+
+def test_build_pack_empty_after_background_removal(tmp_path):
+    from PIL import Image
+
+    src = tmp_path / "empty.png"
+    Image.new("RGBA", (64, 64), (0, 0, 0, 0)).save(src)
+    with pytest.raises(PackError, match="empty after background removal"):
+        build_pack(src, tmp_path / "emptypack", "emptypack")
+
+
+def test_build_pack_pipeline_failure_wrapped(tmp_path, monkeypatch):
+    import ui.avatar.pack as pack_mod
+    from PIL import Image
+
+    src = tmp_path / "ok.png"
+    img = Image.new("RGB", (64, 64), (255, 255, 255))
+    for x in range(20, 40):
+        for y in range(20, 40):
+            img.putpixel((x, y), (10, 10, 200))
+    img.save(src)
+
+    def boom(*a, **k):
+        raise ValueError("disk on fire")
+
+    monkeypatch.setattr(pack_mod, "crop_pad_resize", boom)
+    with pytest.raises(PackError, match="pipeline failed"):
+        build_pack(src, tmp_path / "failpack", "failpack")

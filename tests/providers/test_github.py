@@ -140,3 +140,11 @@ def test_list_models_empty_on_http_error():
     )
     p = _provider(session)
     assert p.list_models() == []
+
+
+def test_chat_401_after_exchange_maps_unauthorized():
+    session = FakeSession(_token(), [FakeResponse({}, status_code=401)])
+    p = _provider(session)
+    with pytest.raises(ProviderError) as ei:
+        p.complete(_msgs(), [], CancellationToken())
+    assert ei.value.error_code == "unauthorized"

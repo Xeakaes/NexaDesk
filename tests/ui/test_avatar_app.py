@@ -152,3 +152,21 @@ def test_avatar_app_disables_quit_on_last_window_closed(tmp_path, monkeypatch):
     app, ui, rt = _make_app(tmp_path, monkeypatch)
     assert QApplication.instance().quitOnLastWindowClosed() is False
     ui.close()
+
+
+def test_avatar_agent_error_unauthorized_shows_i18n_hint(tmp_path, monkeypatch):
+    """agent_error with error_code=unauthorized must show the bilingual hint."""
+    from core.events import Event
+    from ui.i18n import i18n
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui._sid = ui._history.create_session()
+    ev = Event(
+        "agent_error",
+        ui._sid,
+        "t1",
+        {"error_code": "unauthorized", "message": "401 Client Error"},
+    )
+    ui._on_event(ev)
+    assert i18n.t("chat.error_unauthorized") in ui.bubble._transcript.toPlainText()
+    ui.close()

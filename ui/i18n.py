@@ -41,6 +41,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "tr": "Model sağlayıcısı hız limitine takıldı (429). Biraz bekleyip yeniden deneyin ya da Ayarlar'dan başka bir sağlayıcı seçin.",
         "en": "The model provider hit its rate limit (429). Wait a moment and try again, or pick another provider in Settings.",
     },
+    "chat.error_unauthorized": {
+        "tr": "Model sağlayıcısı API anahtarını reddetti (401). Anahtarı Ayarlar'dan kontrol edin ya da yenileyin.",
+        "en": "The model provider rejected the API key (401). Check or renew the key in Settings.",
+    },
     "chat.empty_title": {"tr": "Merhaba! Bir sohbet başlat.", "en": "Hi! Start a chat."},
     "chat.empty_hint": {
         "tr": "Asistana ne sormak istersiniz?",

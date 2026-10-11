@@ -335,6 +335,14 @@ class OpenAICompatibleProvider(ModelProvider):
                 self._notice = {"code": "vision_disabled", "model": self.model}
                 body["messages"] = self._serialize(messages, include_images=False)
                 resp = self._post_chat(body, headers, cancel)
+            if resp.status_code in (401, 403):
+                # raise_for_status() would bury a bad key under a generic
+                # HTTPError; surface it as a distinct, actionable code.
+                raise ProviderError(
+                    f"provider rejected the API key (HTTP {resp.status_code});"
+                    " check the key in Settings",
+                    error_code="unauthorized",
+                )
             resp.raise_for_status()
             payload = resp.json()
         except requests.Timeout as exc:
