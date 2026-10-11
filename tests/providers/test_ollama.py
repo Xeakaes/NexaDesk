@@ -113,3 +113,17 @@ def test_ollama_http_error_maps_provider_error():
     with pytest.raises(ProviderError) as ei:
         p.complete(_msgs(), [], CancellationToken())
     assert ei.value.error_code == "provider_error"
+
+
+def test_ollama_list_models_parses_tags():
+    class S:
+        def get(self, url, timeout=None, headers=None):
+            self.url = url
+            return FakeResponse(
+                {"models": [{"name": "llama3:8b"}, {"name": "qwen:4b"}]}
+            )
+
+    s = S()
+    p = OllamaProvider("http://127.0.0.1:11434", "m", session=s)
+    assert p.list_models() == ["llama3:8b", "qwen:4b"]
+    assert s.url == "http://127.0.0.1:11434/api/tags"

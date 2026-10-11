@@ -1,7 +1,7 @@
 import json
 from core.providers.base import ChatMessage, ToolCall
 from core.providers.ollama import serialize_messages as so, to_provider_tools as tpo
-from core.providers.openai_compat import serialize_messages as sa, to_provider_tools as tpa
+from core.providers.openai_compatible import serialize_messages as sa, to_provider_tools as tpa
 
 HISTORY = [
     ChatMessage(role="user", content="ekran görüntüsü al"),

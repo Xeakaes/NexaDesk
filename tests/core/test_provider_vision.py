@@ -6,7 +6,7 @@ from core.providers.base import ChatMessage
 
 
 def test_openai_compat_serializes_images():
-    from core.providers.openai_compat import serialize_messages
+    from core.providers.openai_compatible import serialize_messages
 
     msgs = [ChatMessage(role="user", content="look", images=["data:image/jpeg;base64,AAA"])]
     wire = serialize_messages(msgs)
@@ -18,7 +18,7 @@ def test_openai_compat_serializes_images():
 
 
 def test_openai_compat_plain_when_no_images():
-    from core.providers.openai_compat import serialize_messages
+    from core.providers.openai_compatible import serialize_messages
 
     msgs = [ChatMessage(role="user", content="hello")]
     wire = serialize_messages(msgs)
@@ -45,7 +45,7 @@ def test_ollama_plain_when_no_images():
 
 def test_providers_flag_supports_vision():
     from core.providers.ollama import OllamaProvider
-    from core.providers.openai_compat import OpenAICompatProvider
+    from core.providers.openai_compatible import OpenAICompatibleProvider
 
-    assert OpenAICompatProvider.supports_vision is True
+    assert OpenAICompatibleProvider.supports_vision is True
     assert OllamaProvider.supports_vision is True

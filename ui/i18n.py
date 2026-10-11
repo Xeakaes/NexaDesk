@@ -37,8 +37,8 @@ STRINGS: dict[str, dict[str, str]] = {
     "chat.cancelled": {"tr": "Görev iptal edildi.", "en": "Task cancelled."},
     "chat.error_prefix": {"tr": "Hata", "en": "Error"},
     "chat.error_rate_limited": {
-        "tr": "Model sağlayıcısı istek limitini aştı (429). Lütfen birkaç saniye sonra yeniden deneyin.",
-        "en": "The model provider rate limit was reached (429). Please try again in a moment.",
+        "tr": "Model sağlayıcısı hız limitine takıldı (429). Biraz bekleyip yeniden deneyin ya da Ayarlar'dan başka bir sağlayıcı seçin.",
+        "en": "The model provider hit its rate limit (429). Wait a moment and try again, or pick another provider in Settings.",
     },
     "chat.empty_title": {"tr": "Merhaba! Bir sohbet başlat.", "en": "Hi! Start a chat."},
     "chat.empty_hint": {
@@ -107,6 +107,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "settings.provider_type": {"tr": "Sağlayıcı", "en": "Provider"},
     "settings.provider_url": {"tr": "URL (boş = varsayılan)", "en": "URL (empty = default)"},
     "settings.provider_model": {"tr": "Model", "en": "Model"},
+    "settings.refresh_models": {"tr": "Modelleri getir", "en": "Fetch models"},
     "settings.provider_key": {"tr": "API anahtarı", "en": "API key"},
     "settings.sc_host": {"tr": "SC host", "en": "SC host"},
     "settings.sc_port": {"tr": "SC port", "en": "SC port"},

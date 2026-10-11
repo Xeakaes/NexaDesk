@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from core.providers.base import ModelProvider, ProviderError
+from core.providers.github import GitHubCopilotProvider
 from core.providers.ollama import OllamaProvider
-from core.providers.openai_compat import OpenAICompatProvider
+from core.providers.openai_compatible import OpenAICompatibleProvider
 
 
 def _url(provider_cfg: dict, default: str, secrets: dict | None = None) -> str:
@@ -17,11 +18,31 @@ def _vision(provider_cfg: dict) -> bool:
     return bool(provider_cfg.get("vision", True))
 
 
+# Standard OpenAI-compatible presets: provider type -> (default base_url,
+# secrets key). Special-cased types (openai_compatible's secret fallback,
+# nararouter's URL trimming) live in create_provider directly.
+_OPENAI_COMPATIBLE_PRESETS: dict[str, tuple[str, str]] = {
+    "nvidia": ("https://integrate.api.nvidia.com/v1", "nvidia_api_key"),
+    "groq": ("https://api.groq.com/openai/v1", "groq_api_key"),
+    "google": (
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        "google_api_key",
+    ),
+    "deepseek": ("https://api.deepseek.com/v1", "deepseek_api_key"),
+    "mistral": ("https://api.mistral.ai/v1", "mistral_api_key"),
+    "xai": ("https://api.x.ai/v1", "xai_api_key"),
+    "together": ("https://api.together.xyz/v1", "together_api_key"),
+    "openrouter": ("https://openrouter.ai/api/v1", "openrouter_api_key"),
+}
+
+
 def create_provider(
     settings: dict, secrets: dict, session=None
 ) -> ModelProvider:
     provider_cfg = settings.get("provider") or {}
     ptype = provider_cfg.get("type", "ollama")
+    if ptype == "openai_compat":  # legacy settings value, pre-rename
+        ptype = "openai_compatible"
     timeout_s = float((settings.get("agent") or {}).get("model_timeout_s", 60))
     vision = _vision(provider_cfg)
     if ptype == "ollama":
@@ -33,67 +54,53 @@ def create_provider(
             session=session,
             supports_vision=vision,
         )
-    if ptype == "openai_compat":
+    if ptype == "openai_compatible":
         api_key = secrets.get("api_key") or secrets.get("openai_api_key")
         if not api_key:
             raise ProviderError(
-                "openai_compat provider requires secrets.api_key",
+                "openai_compatible provider requires secrets.api_key",
                 error_code="missing_api_key",
             )
-        return OpenAICompatProvider(
+        return OpenAICompatibleProvider(
             base_url=_url(provider_cfg, "https://api.openai.com/v1"),
             api_key=api_key,
             model=provider_cfg.get("model"),
             timeout_s=timeout_s,
             session=session,
             supports_vision=vision,
+            provider_key=ptype,
         )
-    if ptype == "nvidia":
-        api_key = secrets.get("nvidia_api_key")
+    if ptype == "github":
+        api_key = secrets.get("github_api_key")
         if not api_key:
             raise ProviderError(
-                "nvidia provider requires secrets.nvidia_api_key",
+                "github provider requires secrets.github_api_key",
                 error_code="missing_api_key",
             )
-        return OpenAICompatProvider(
-            base_url=_url(provider_cfg, "https://integrate.api.nvidia.com/v1"),
+        return GitHubCopilotProvider(
+            api_key=api_key,
+            model=provider_cfg.get("model", "gpt-4o"),
+            timeout_s=timeout_s,
+            session=session,
+            supports_vision=vision,
+        )
+    preset = _OPENAI_COMPATIBLE_PRESETS.get(ptype)
+    if preset:
+        default_url, secret_key = preset
+        api_key = secrets.get(secret_key)
+        if not api_key:
+            raise ProviderError(
+                f"{ptype} provider requires secrets.{secret_key}",
+                error_code="missing_api_key",
+            )
+        return OpenAICompatibleProvider(
+            base_url=_url(provider_cfg, default_url),
             api_key=api_key,
             model=provider_cfg.get("model"),
             timeout_s=timeout_s,
             session=session,
             supports_vision=vision,
-        )
-    if ptype == "groq":
-        api_key = secrets.get("groq_api_key")
-        if not api_key:
-            raise ProviderError(
-                "groq provider requires secrets.groq_api_key",
-                error_code="missing_api_key",
-            )
-        return OpenAICompatProvider(
-            base_url=_url(provider_cfg, "https://api.groq.com/openai/v1"),
-            api_key=api_key,
-            model=provider_cfg.get("model"),
-            timeout_s=timeout_s,
-            session=session,
-            supports_vision=vision,
-        )
-    if ptype == "google":
-        api_key = secrets.get("google_api_key")
-        if not api_key:
-            raise ProviderError(
-                "google provider requires secrets.google_api_key",
-                error_code="missing_api_key",
-            )
-        return OpenAICompatProvider(
-            base_url=_url(
-                provider_cfg, "https://generativelanguage.googleapis.com/v1beta/openai"
-            ),
-            api_key=api_key,
-            model=provider_cfg.get("model"),
-            timeout_s=timeout_s,
-            session=session,
-            supports_vision=vision,
+            provider_key=ptype,
         )
     if ptype == "nararouter":
         api_key = secrets.get("nararouter_api_key")
@@ -108,12 +115,13 @@ def create_provider(
         url = url.rstrip("/")
         if url.endswith("/chat/completions"):
             url = url[: -len("/chat/completions")]
-        return OpenAICompatProvider(
+        return OpenAICompatibleProvider(
             base_url=url,
             api_key=api_key,
             model=provider_cfg.get("model"),
             timeout_s=timeout_s,
             session=session,
             supports_vision=vision,
+            provider_key=ptype,
         )
     raise ProviderError(f"unknown provider type: {ptype}", error_code="unknown_provider")

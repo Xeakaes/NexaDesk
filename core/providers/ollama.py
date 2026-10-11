@@ -91,6 +91,30 @@ class OllamaProvider(ModelProvider):
         self._session = session or requests.Session()
         self.supports_vision = supports_vision
 
+    def list_models(self) -> list[str]:
+        """Local model tags from /api/tags (Settings dropdown)."""
+        try:
+            resp = self._session.get(
+                f"{self.base_url}/api/tags", timeout=self.timeout_s
+            )
+        except requests.RequestException:
+            return []
+        if resp.status_code != 200:
+            return []
+        try:
+            data = resp.json()
+        except ValueError:
+            return []
+        models = data.get("models") if isinstance(data, dict) else None
+        if not isinstance(models, list):
+            return []
+        names = {
+            str(m["name"])
+            for m in models
+            if isinstance(m, dict) and m.get("name")
+        }
+        return sorted(names)
+
     def complete(
         self,
         messages: list[ChatMessage],

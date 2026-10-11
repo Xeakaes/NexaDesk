@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import random
 import time
+from urllib.parse import urlparse
 
 import requests
 
@@ -77,24 +78,36 @@ def _looks_like_image_error(text: str) -> bool:
 
 
 # Hosted providers (Groq above all) answer 429/529 when a burst of tool-calls
-# trips the per-minute request limit. The window clears within seconds, so a
-# short backoff-and-retry keeps a task alive instead of aborting it with a raw
-# HTTP error the user cannot act on.
+# trips the per-minute limits. The retry policy is per provider because the
+# budgets differ wildly: Groq free is 30 req/min and 8K tokens/min with a flat
+# 2048 tokens per image, so screenshot-carrying agent calls thrash (observed:
+# Retry-After ~30s on every call, a task grinding for 210s). Local servers
+# never throttle on purpose - a 429 there means something is broken - so they
+# get no backoff at all.
 _RATE_LIMIT_STATUSES = frozenset({429, 529})
-_MAX_RATE_RETRIES = 3
-_RETRY_AFTER_CAP_S = 30.0
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+# max_wait_s: cap for a single Retry-After/backoff wait.
+# total_budget_s: hard cap on cumulative waiting inside one request chain.
+# max_retries: attempts after the first 429/529.
+RATE_LIMIT_POLICY: dict[str, dict[str, float]] = {
+    "groq": {"max_wait_s": 30.0, "total_budget_s": 60.0, "max_retries": 3},
+    "github": {"max_wait_s": 30.0, "total_budget_s": 90.0, "max_retries": 3},
+}
+_DEFAULT_RATE_POLICY = {"max_wait_s": 30.0, "total_budget_s": 60.0, "max_retries": 3}
+_NO_RATE_POLICY = {"max_wait_s": 0.0, "total_budget_s": 0.0, "max_retries": 0}
 
 
-def _rate_limit_delay(resp, attempt: int) -> float:
+def _rate_limit_delay(resp, attempt: int, cap_s: float) -> float:
     """Seconds to wait before retrying a rate-limited (429/529) response."""
     raw = resp.headers.get("Retry-After")
     if raw:
         try:
-            return min(max(float(raw), 0.0), _RETRY_AFTER_CAP_S)
+            return min(max(float(raw), 0.0), cap_s)
         except ValueError:
             pass
-    # Exponential backoff with jitter: ~0.5-1s, ~1-2s, ~2-4s.
-    base = min(2 ** attempt, _RETRY_AFTER_CAP_S)
+    # Exponential backoff with jitter, capped like Retry-After.
+    base = min(2 ** attempt, cap_s)
     return base * (0.5 + random.random())
 
 
@@ -111,7 +124,7 @@ def _ratelimit_headers(resp) -> dict:
     }
 
 
-class OpenAICompatProvider(ModelProvider):
+class OpenAICompatibleProvider(ModelProvider):
     supports_tools = True
     supports_vision = True
 
@@ -123,6 +136,7 @@ class OpenAICompatProvider(ModelProvider):
         timeout_s: float = 60.0,
         session: requests.Session | None = None,
         supports_vision: bool = True,
+        provider_key: str = "openai_compatible",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -130,6 +144,7 @@ class OpenAICompatProvider(ModelProvider):
         self.timeout_s = timeout_s
         self._session = session or requests.Session()
         self.supports_vision = supports_vision
+        self.provider_key = provider_key
         self._notice: dict | None = None
         self._stats: dict = self._empty_stats()
 
@@ -146,6 +161,32 @@ class OpenAICompatProvider(ModelProvider):
         """One-shot timing counters (model_calls, total_wait_ms, total_http_ms)."""
         stats, self._stats = self._stats, self._empty_stats()
         return stats
+
+    def list_models(self) -> list[str]:
+        """Model ids from the provider's /models catalog (Settings dropdown)."""
+        try:
+            resp = self._session.get(
+                f"{self.base_url}/models",
+                headers=self._auth_headers(),
+                timeout=self.timeout_s,
+            )
+        except requests.RequestException:
+            return []
+        if resp.status_code != 200:
+            return []
+        try:
+            data = resp.json()
+        except ValueError:
+            return []
+        items = data.get("data") if isinstance(data, dict) else data
+        if not isinstance(items, list):
+            return []
+        ids = {
+            str(item["id"])
+            for item in items
+            if isinstance(item, dict) and item.get("id")
+        }
+        return sorted(ids)
 
     def _log_request(
         self,
@@ -168,7 +209,7 @@ class OpenAICompatProvider(ModelProvider):
                 usage = payload.get("usage")
         log_event(
             "model_request",
-            provider="openai_compat",
+            provider="openai_compatible",
             model=self.model,
             attempt=attempt,
             status=status,
@@ -180,21 +221,33 @@ class OpenAICompatProvider(ModelProvider):
             error=error,
         )
 
+    def _rate_policy(self) -> dict:
+        """Wait budget for this endpoint: none locally, per provider in cloud."""
+        host = urlparse(self.base_url).hostname or ""
+        if host in _LOOPBACK_HOSTS:
+            return _NO_RATE_POLICY
+        return RATE_LIMIT_POLICY.get(self.provider_key, _DEFAULT_RATE_POLICY)
+
     def _post_chat(
         self,
         body: dict,
         headers: dict,
         cancel: CancellationToken,
     ):
-        """POST /chat/completions, retrying transient rate limits.
+        """POST /chat/completions, retrying transient rate limits within budget.
 
         429/529 responses clear within seconds, so we back off (honouring a
         Retry-After header when present) and retry rather than aborting the
-        task with a raw HTTP error. Retrying stops immediately if the task is
+        task with a raw HTTP error. Waiting is bounded by the per-provider
+        policy: a single wait is capped, cumulative waits cannot exceed the
+        budget (Groq free thrash previously burned 210s per task), and local
+        endpoints never wait at all. Retrying stops immediately if the task is
         cancelled, and the final failure surfaces a human message instead of
         the provider URL. Every attempt is timed and logged for telemetry.
         """
+        policy = self._rate_policy()
         attempt = 0
+        waited_s = 0.0
         pending_wait_ms = 0.0
         while True:
             t0 = time.perf_counter()
@@ -223,20 +276,34 @@ class OpenAICompatProvider(ModelProvider):
             )
             pending_wait_ms = 0.0
             if resp.status_code in _RATE_LIMIT_STATUSES:
-                if attempt >= _MAX_RATE_RETRIES:
+                if attempt >= int(policy["max_retries"]):
                     raise ProviderError(
                         "rate limit reached (429); please wait a moment and retry",
                         error_code="rate_limited",
                     )
-                delay = _rate_limit_delay(resp, attempt)
+                cap = float(policy["max_wait_s"])
+                delay = min(_rate_limit_delay(resp, attempt, cap), cap)
+                if waited_s + delay > float(policy["total_budget_s"]):
+                    # Another wait would exceed the budget (e.g. Groq's
+                    # Retry-After ~30s thrash): fail honestly instead of
+                    # grinding for minutes.
+                    raise ProviderError(
+                        "rate limit reached (429); please wait a moment and retry",
+                        error_code="rate_limited",
+                    )
                 # cancel.wait() doubles as a cancel-aware sleep.
                 if cancel.wait(delay):
                     raise ProviderError("cancelled", error_code="cancelled")
+                waited_s += delay
                 pending_wait_ms = delay * 1000.0
                 self._stats["total_wait_ms"] += pending_wait_ms
                 attempt += 1
                 continue
             return resp
+
+    def _auth_headers(self) -> dict:
+        """Per-request auth headers; subclasses may add/refresh tokens."""
+        return {"Authorization": f"Bearer {self.api_key}"}
 
     def complete(
         self,
@@ -251,7 +318,7 @@ class OpenAICompatProvider(ModelProvider):
         tools = to_provider_tools(schemas)
         if tools:
             body["tools"] = tools
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        headers = self._auth_headers()
         try:
             resp = self._post_chat(body, headers, cancel)
             if (

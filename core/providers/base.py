@@ -56,3 +56,7 @@ class ModelProvider(ABC):
         cancel: CancellationToken,
     ) -> ProviderResponse:
         ...
+
+    def list_models(self) -> list[str]:
+        """Model ids for the Settings dropdown; [] when unsupported/unavailable."""
+        return []
