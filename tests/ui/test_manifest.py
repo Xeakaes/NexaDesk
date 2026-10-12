@@ -117,3 +117,24 @@ def test_emotions_constant():
         "angry",
         "surprised",
     )
+
+
+def test_manifest_validate_files_flags_missing_frame(tmp_path):
+    # B46: frames listed in the manifest must exist on disk when validation
+    # is requested (window layer uses it to fall back cleanly).
+    import json
+
+    import pytest as _pytest
+
+    from ui.avatar.manifest import ManifestError, load_manifest
+
+    states = {
+        name: {"frames": ["f.png"], "fps": 6, "loop": True}
+        for name in ("idle", "thinking", "working", "speaking", "error")
+    }
+    p = tmp_path / "manifest.json"
+    p.write_text(json.dumps({"name": "x", "states": states}), encoding="utf-8")
+    # without validation: OK (pure loader)
+    load_manifest(p)
+    with _pytest.raises(ManifestError, match="missing frame"):
+        load_manifest(p, validate_files=True)

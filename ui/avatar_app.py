@@ -379,7 +379,15 @@ class App:
         self.settings_win.raise_()
 
     def _avatar_names(self) -> list[str]:
-        return sorted(p.name for p in ASSETS.iterdir() if p.is_dir())
+        # B51: scan BOTH the user-pack dir and bundled assets — user-built
+        # packs must appear in the character menu.
+        from core.paths import user_avatars_dir
+
+        names: set[str] = set()
+        for root in (ASSETS, user_avatars_dir()):
+            if root.is_dir():
+                names.update(p.name for p in root.iterdir() if p.is_dir())
+        return sorted(names)
 
     def _switch_avatar(self, name: str) -> None:
         settings = load_settings(self.settings_path)

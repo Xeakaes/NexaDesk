@@ -95,3 +95,47 @@ def test_same_emotion_noop(tmp_path):
     assert av.current_emotion() == "sad"
     assert av._frame_index == index
     av.close()
+
+
+def test_nonloop_anim_returns_to_idle(tmp_path):
+    # B47: a non-loop animation must not freeze on its last frame forever;
+    # when it finishes (and it's not the error state) the avatar returns to
+    # idle. error keeps its own error_timer path.
+    _qapp()
+    pack = _v2_pack(tmp_path)
+    # make speaking non-loop
+    m = json.loads((pack / "manifest.json").read_text())
+    for emotion in REQUIRED_EMOTIONS:
+        m["emotions"][emotion]["speaking"]["loop"] = False
+    (pack / "manifest.json").write_text(json.dumps(m))
+    av = AvatarWindow(pack)
+    av.set_state("speaking")
+    assert av.current_state() == "speaking"
+    # exhaust frames
+    for _ in range(5):
+        av._advance()
+    assert av.current_state() == "idle"
+    av.close()
+
+
+def test_error_state_keeps_last_frame_until_timer(tmp_path):
+    # B47 counterpart: error must NOT auto-return from _advance — the
+    # error_timer owns that transition.
+    _qapp()
+    av = AvatarWindow(_base_avatar_dir())
+    m = json.loads((av._avatar_dir / "manifest.json").read_text())
+    states = m.get("states") or m["emotions"]["neutral"]
+    if states.get("error", {}).get("loop", True):
+        # base pack error may loop; force non-loop in a temp copy
+        pack = _v2_pack(tmp_path)
+        data = json.loads((pack / "manifest.json").read_text())
+        for emotion in REQUIRED_EMOTIONS:
+            data["emotions"][emotion]["error"]["loop"] = False
+        (pack / "manifest.json").write_text(json.dumps(data))
+        av.close()
+        av = AvatarWindow(pack)
+    av.set_state("error")
+    for _ in range(5):
+        av._advance()
+    assert av.current_state() == "error"
+    av.close()

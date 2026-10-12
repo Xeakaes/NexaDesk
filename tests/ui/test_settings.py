@@ -824,3 +824,89 @@ def test_start_ai_pack_fails_fast_on_existing_name(tmp_path, monkeypatch):
     assert win._status.text() == i18n.t("settings.pack_exists", name="taken")
     win.hide()
     win.deleteLater()
+
+
+def test_build_button_stays_disabled_while_pack_worker_runs(tmp_path, monkeypatch):
+    # B40: textChanged during an in-flight classic build must not re-enable
+    # the Build button (it only guarded the AI worker).
+    import threading
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    cfg = tmp_path / "cfg"
+    bundle = tmp_path / "bundle_assets"
+    (bundle / "avatars").mkdir(parents=True)
+    monkeypatch.setattr("core.paths.assets_dir", lambda: bundle)
+    monkeypatch.setattr("core.paths.config_dir", lambda: cfg)
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_build(src, out, name):
+        started.set()
+        release.wait(timeout=5)
+
+    monkeypatch.setattr("ui.settings.build_pack", slow_build)
+
+    from PIL import Image
+
+    src = tmp_path / "photo.png"
+    img = Image.new("RGB", (64, 64), (255, 255, 255))
+    for x in range(20, 44):
+        for y in range(20, 44):
+            img.putpixel((x, y), (200, 30, 30))
+    img.save(src)
+
+    win = SettingsWindow(settings, secrets, ui_json)
+    win._pack_path.setText(str(src))
+    win._pack_name.setText("worker2")
+    win._build_pack()
+    assert started.wait(timeout=2)
+    # user edits the name mid-build → old code re-enabled the button
+    win._pack_name.setText("worker2-edited")
+    assert not win._pack_build.isEnabled()
+    release.set()
+    assert win._pack_worker.wait(5000)
+    for _ in range(50):
+        app.processEvents()
+        if win._pack_build.isEnabled():
+            break
+        threading.Event().wait(0.05)
+    assert win._pack_build.isEnabled()
+    assert getattr(win, "_pack_worker", None) is None  # cleared on terminal
+    win.hide()
+    win.deleteLater()
+
+
+def test_pack_failed_signal_carries_detail(tmp_path, monkeypatch):
+    # B41: a PackError detail (e.g. "empty after background removal") must
+    # reach the status line, not be collapsed to a generic message.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+
+    class W:
+        def __init__(self, *a, **k):
+            from ui.settings import _PackSignals
+
+            self.signals = _PackSignals()
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr("ui.settings._PackBuildWorker", W)
+    win._pack_path.setText(str(tmp_path / "x.png"))
+    win._pack_name.setText("broken")
+    win._build_pack()
+    win._pack_worker.signals.failed.emit("broken", "error", "the pipeline exploded")
+    assert "the pipeline exploded" in win._status.text()
+    win.hide()
+    win.deleteLater()

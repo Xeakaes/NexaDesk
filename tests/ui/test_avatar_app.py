@@ -299,3 +299,23 @@ def test_avatar_finished_with_final_text_appends_error(tmp_path, monkeypatch):
     lines = ui.bubble._transcript.toPlainText()
     assert "Hata: patladı" in lines
     ui.close()
+
+
+def test_avatar_names_include_user_dir(tmp_path, monkeypatch):
+    # B51: the character menu must list user-built packs too, not only
+    # bundled assets.
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    from core import paths as core_paths
+    import ui.avatar_app as aa
+
+    user_dir = tmp_path / "user_avatars"
+    user_dir.mkdir()
+    (user_dir / "mycustom").mkdir()
+    assets = tmp_path / "assets_avatars"
+    (assets / "base").mkdir(parents=True)
+    monkeypatch.setattr(core_paths, "user_avatars_dir", lambda: user_dir)
+    monkeypatch.setattr(aa, "ASSETS", assets)
+    names = ui._avatar_names()
+    assert "mycustom" in names
+    assert "base" in names
+    ui.close()

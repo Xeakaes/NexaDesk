@@ -48,7 +48,10 @@ class AvatarWindow(QWidget):
         self._context_menu_factory = context_menu_factory
         self._active_menu: QMenu | None = None  # B22: strong ref while open
         self._avatar_dir = avatar_dir
-        self._manifest = load_manifest(avatar_dir / "manifest.json")
+        # B46: validate that listed frames exist — a broken pack then falls
+        # back cleanly via _make_avatar's except-continue instead of showing
+        # missing-file placeholders forever.
+        self._manifest = load_manifest(avatar_dir / "manifest.json", validate_files=True)
         self._emotion: str = "neutral"
         self._spinner_frames = load_spinner_frames(avatar_dir)
         self._state: AvatarState = "idle"
@@ -173,6 +176,11 @@ class AvatarWindow(QWidget):
                 self._frame_index = 0
             else:
                 self._timer.stop()
+                # B47: a finished non-loop animation must return to idle
+                # instead of freezing on the last frame. The error state is
+                # excluded — it owns its own error_timer transition.
+                if self._state != "error":
+                    self.set_state("idle")
                 return
         else:
             self._frame_index += 1

@@ -59,7 +59,18 @@ def _parse_states(states: dict, base: Path) -> dict[str, StateAnim]:
     return out
 
 
-def load_manifest(path: Path) -> Manifest:
+def _validate_files(manifest: Manifest) -> None:
+    """Raise ManifestError when any listed frame file is missing (B46)."""
+    for emotion, states in manifest.emotions.items():
+        for state, anim in states.items():
+            for frame in anim.frames:
+                if not Path(frame).is_file():
+                    raise ManifestError(
+                        f"missing frame: {emotion}/{state}: {frame}"
+                    )
+
+
+def load_manifest(path: Path, validate_files: bool = False) -> Manifest:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -70,17 +81,21 @@ def load_manifest(path: Path) -> Manifest:
         states = data.get("states")
         if not isinstance(states, dict):
             raise ManifestError("manifest must contain a 'states' object")
-        return Manifest(emotions={"neutral": _parse_states(states, base)})
-    if not isinstance(emotions_raw, dict):
-        raise ManifestError("manifest 'emotions' must be an object")
-    for name in REQUIRED_EMOTIONS:
-        if name not in emotions_raw:
-            raise ManifestError(f"missing emotion: {name}")
-    for name in emotions_raw:
-        if name not in REQUIRED_EMOTIONS:
-            raise ManifestError(f"unknown emotion: {name}")
-    emotions = {
-        name: _parse_states(emotions_raw[name], base)
-        for name in REQUIRED_EMOTIONS
-    }
-    return Manifest(emotions=emotions)
+        manifest = Manifest(emotions={"neutral": _parse_states(states, base)})
+    else:
+        if not isinstance(emotions_raw, dict):
+            raise ManifestError("manifest 'emotions' must be an object")
+        for name in REQUIRED_EMOTIONS:
+            if name not in emotions_raw:
+                raise ManifestError(f"missing emotion: {name}")
+        for name in emotions_raw:
+            if name not in REQUIRED_EMOTIONS:
+                raise ManifestError(f"unknown emotion: {name}")
+        emotions = {
+            name: _parse_states(emotions_raw[name], base)
+            for name in REQUIRED_EMOTIONS
+        }
+        manifest = Manifest(emotions=emotions)
+    if validate_files:
+        _validate_files(manifest)
+    return manifest

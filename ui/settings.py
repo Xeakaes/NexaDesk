@@ -77,7 +77,7 @@ class _PackSignals(QObject):
     """Signal carrier living on the UI thread; safe to emit from any thread."""
 
     succeeded = Signal(str)  # pack name
-    failed = Signal(str, str)  # name, error kind ("exists" | "bad_image" | "error")
+    failed = Signal(str, str, str)  # name, kind, detail (B41)
 
 
 class _PackBuildWorker:
@@ -110,10 +110,12 @@ class _PackBuildWorker:
         try:
             build_pack(self._src, self._out, self._name)
         except PackError as exc:
+            # B41: keep the real reason — "exists" vs everything else, with
+            # the PackError text as detail for the status line.
             kind = "exists" if "exists" in str(exc) else "bad_image"
-            self.signals.failed.emit(self._name, kind)
-        except Exception:
-            self.signals.failed.emit(self._name, "error")
+            self.signals.failed.emit(self._name, kind, str(exc))
+        except Exception as exc:  # noqa: BLE001 — surface any failure detail
+            self.signals.failed.emit(self._name, "error", str(exc))
         else:
             self.signals.succeeded.emit(self._name)
 
@@ -768,7 +770,13 @@ class SettingsWindow(QWidget):
     def _update_build_enabled(self, *_a) -> None:
         has_photo = bool(self._pack_path.text().strip()) and bool(self._pack_name.text().strip())
         ai_running = getattr(self, "_ai_worker", None) is not None and self._ai_worker.is_alive()
-        self._pack_build.setEnabled(has_photo and not ai_running)
+        # B40: a classic pack build in flight must also lock the button —
+        # textChanged used to re-enable it mid-build.
+        pack_running = (
+            getattr(self, "_pack_worker", None) is not None
+            and self._pack_worker.is_alive()
+        )
+        self._pack_build.setEnabled(has_photo and not ai_running and not pack_running)
         if ai_running:
             # A generation run owns the AI controls; never allow a second worker.
             self._ai_generate.setEnabled(False)
@@ -812,6 +820,7 @@ class SettingsWindow(QWidget):
 
     def _on_pack_built(self, name: str) -> None:
         self.unsetCursor()
+        self._pack_worker = None  # terminal: release the build lock (B40)
         self._pack_build.setEnabled(True)
         self._status.setText(i18n.t("settings.pack_success", name=name))
         self._avatar.clear()
@@ -820,11 +829,15 @@ class SettingsWindow(QWidget):
         if idx >= 0:
             self._avatar.setCurrentIndex(idx)
 
-    def _on_pack_failed(self, name: str, kind: str) -> None:
+    def _on_pack_failed(self, name: str, kind: str, detail: str = "") -> None:
         self.unsetCursor()
+        self._pack_worker = None  # terminal: release the build lock (B40)
         self._pack_build.setEnabled(True)
         if kind == "exists":
             self._status.setText(i18n.t("settings.pack_exists", name=name))
+        elif kind == "error" and detail:
+            # B41: surface the real reason instead of a generic message.
+            self._status.setText(detail)
         else:
             self._status.setText(i18n.t("settings.pack_bad_image"))
 
