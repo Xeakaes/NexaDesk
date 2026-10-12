@@ -27,7 +27,12 @@ from core.events import EventBus
 from core.providers.base import ChatMessage, ModelProvider, ProviderError
 from core.session.store import SessionStore
 from core.tools.base import ToolResult
-from core.tools.registry import PermissionLevel, PermissionPolicy, ToolRegistry
+from core.tools.registry import (
+    PermissionLevel,
+    PermissionPolicy,
+    ToolRegistry,
+    missing_required_args,
+)
 
 
 def _json_safe(value):
@@ -405,6 +410,19 @@ class AgentRuntime:
                 ok=False,
                 error="permission denied by policy",
                 error_code="permission_denied",
+            )
+        # B27: validate against the schema before any side effect — before
+        # the confirmation prompt and before the tool itself runs — so the
+        # model receives a fixable error instead of a raw TypeError.
+        missing = missing_required_args(tool.input_schema, arguments)
+        if missing:
+            return ToolResult(
+                ok=False,
+                error=(
+                    f"missing required argument(s): {', '.join(missing)}; "
+                    f"repeat the {name} call with every required field"
+                ),
+                error_code="invalid_arguments",
             )
         if level is PermissionLevel.ASK:
             confirm_id = uuid.uuid4().hex

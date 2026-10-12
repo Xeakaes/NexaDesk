@@ -145,6 +145,59 @@ def test_unknown_tool_name():
     assert "unknown_tool" in provider.calls[1].messages[-1].content
 
 
+def test_missing_required_argument_returns_invalid_arguments():
+    # B27: schema-required fields must be checked before invoke, so the model
+    # gets a fixable error instead of a raw TypeError from inside the tool.
+    tool = FakeTool("read")
+    tool.input_schema = {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+        "required": ["path"],
+    }
+    provider = FakeProvider([
+        ProviderResponse(
+            text=None,
+            tool_calls=[ToolCall(id="c1", name="read", arguments={"dir": "/tmp"})],
+        ),
+        ProviderResponse(text="ok", tool_calls=[]),
+    ])
+    rt, _ = _runtime(provider, tool)
+    rt.start_task("s1", "read the file")
+    assert tool.calls == []
+    content = provider.calls[1].messages[-1].content
+    assert "invalid_arguments" in content
+    assert "path" in content
+
+
+def test_missing_required_argument_skips_confirmation_prompt():
+    # Validating after the ASK prompt would make the user approve a call that
+    # is guaranteed to fail; the check must run first.
+    tool = FakeTool("read")
+    tool.input_schema = {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+        "required": ["path"],
+    }
+    provider = FakeProvider([
+        ProviderResponse(
+            text=None, tool_calls=[ToolCall(id="c1", name="read", arguments={})]
+        ),
+        ProviderResponse(text="ok", tool_calls=[]),
+    ])
+    rt, events = _runtime(provider, tool, policy=PermissionPolicy({"*": "ask"}))
+    reqs = []
+
+    def resolver(e):
+        # Watchdog: keeps the buggy (prompt-first) path from hanging the test.
+        reqs.append(e)
+        rt.resolve_confirmation(e.task_id, e.payload["confirm_id"], True)
+
+    events.subscribe("confirmation_requested", resolver)
+    rt.start_task("s1", "read the file")
+    assert reqs == []
+    assert tool.calls == []
+
+
 def test_max_tool_call_limit():
     tool = FakeTool("echo")
     # endless tool calls: FakeTool without results always returns ok

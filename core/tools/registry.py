@@ -30,6 +30,18 @@ class PermissionPolicy:
         return wildcard if wildcard is not None else PermissionLevel.ASK
 
 
+def missing_required_args(schema: dict, arguments: dict) -> list[str]:
+    """Required schema fields the call omitted or set to null (B27).
+
+    Checked before invoke so the model gets a fixable ``invalid_arguments``
+    error instead of a raw TypeError from inside the tool.
+    """
+    required = (schema or {}).get("required") or []
+    if not isinstance(arguments, dict):
+        return list(required)
+    return [key for key in required if arguments.get(key) is None]
+
+
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
