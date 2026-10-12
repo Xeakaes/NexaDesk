@@ -38,6 +38,33 @@ def test_settings_window_load_and_save(tmp_path):
     win.deleteLater()
 
 
+def test_settings_persona_roundtrip(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    assert win._persona.toPlainText() == ""
+    win._persona.setPlainText("Sen kısa cevap veren bir asistansın.")
+    win.save()
+    import json
+
+    data = json.loads(settings.read_text())
+    assert data["agent"]["persona"] == "Sen kısa cevap veren bir asistansın."
+    # unrelated agent keys survive
+    assert data["agent"].get("max_tool_calls", 10) >= 1
+    win2 = SettingsWindow(settings, secrets, ui_json)
+    win2.load()
+    assert win2._persona.toPlainText() == "Sen kısa cevap veren bir asistansın."
+    win.hide()
+    win.deleteLater()
+    win2.hide()
+    win2.deleteLater()
+
+
 def test_settings_has_five_titled_tabs(tmp_path):
     from PySide6.QtWidgets import QApplication, QTabWidget
 

@@ -31,6 +31,23 @@ def test_build_runtime_wires_everything(tmp_path):
     assert {"screenshot", "ocr_screen", "mouse", "keyboard", "list_windows", "focus_window"} <= names
 
 
+def test_build_runtime_loads_persona(tmp_path):
+    settings = {
+        "provider": {"type": "ollama", "url": "http://x", "model": "m"},
+        "screen_control": {"enabled": False},
+        "agent": {"persona": "Sen Nexa'sın."},
+    }
+    sp = tmp_path / "settings.json"
+    sp.write_text(json.dumps(settings))
+    kp = tmp_path / "secrets.json"
+    kp.write_text(json.dumps({}))
+    os.chmod(kp, 0o600)
+    rt, _, _ = build_runtime(
+        settings_path=sp, secrets_path=kp, provider=FakeProvider([]), client_factory=lambda: object()
+    )
+    assert rt._config.persona == "Sen Nexa'sın."
+
+
 def test_build_runtime_respects_screen_control_disabled(tmp_path):
     settings = {
         "provider": {"type": "ollama", "url": "http://x", "model": "m"},

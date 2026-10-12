@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -196,6 +197,11 @@ class SettingsWindow(QWidget):
         general_form.addRow(self._lbl_lang, self._lang)
         general_form.addRow(self._lbl_theme, self._theme)
         general_form.addRow(self._lbl_mode, self._mode)
+        self._persona = QPlainTextEdit(self)
+        self._persona.setPlaceholderText(i18n.t("settings.persona_hint"))
+        self._persona.setMinimumHeight(72)
+        self._lbl_persona = QLabel(self)
+        general_form.addRow(self._lbl_persona, self._persona)
         general_box = QGroupBox(self)
         general_box.setLayout(general_form)
 
@@ -339,6 +345,8 @@ class SettingsWindow(QWidget):
         self._lbl_lang.setText(t("settings.lang"))
         self._lbl_theme.setText(t("settings.theme"))
         self._lbl_mode.setText(t("settings.mode"))
+        self._lbl_persona.setText(t("settings.persona"))
+        self._persona.setPlaceholderText(t("settings.persona_hint"))
         self._lbl_provider_type.setText(t("settings.provider_type"))
         self._lbl_provider_url.setText(t("settings.provider_url"))
         self._lbl_provider_model.setText(t("settings.provider_model"))
@@ -438,6 +446,7 @@ class SettingsWindow(QWidget):
         idx = self._avatar.findText(settings.get("avatar", "base"))
         if idx >= 0:
             self._avatar.setCurrentIndex(idx)
+        self._persona.setPlainText(str((settings.get("agent") or {}).get("persona", "")))
         self._status.setText("")
 
     def save(self) -> None:
@@ -467,6 +476,9 @@ class SettingsWindow(QWidget):
             per_tool,
         )
         settings["avatar"] = self._avatar.currentText() or "base"
+        agent = settings.get("agent") or {}
+        agent["persona"] = self._persona.toPlainText().strip()
+        settings["agent"] = agent
         key_name = PROVIDER_KEY_SECRETS.get(ptype, "api_key")
         key_value = self._provider_key.text().strip()
         if key_value:

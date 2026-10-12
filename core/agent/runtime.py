@@ -120,6 +120,10 @@ class AgentRuntime:
         """Hot-swap the model provider (e.g. after the user saves Settings)."""
         self._provider = provider
 
+    def set_persona(self, persona: str) -> None:
+        """Hot-swap the optional system prompt (applies to the next task)."""
+        self._config.persona = persona
+
     def begin_task(self, session_id: str, user_text: str) -> str:
         task_id = uuid.uuid4().hex
         task = _Task(task_id, session_id)
@@ -193,6 +197,9 @@ class AgentRuntime:
             while True:
                 task.token.raise_if_cancelled()
                 messages = self._session.messages(sid)
+                persona = (self._config.persona or "").strip()
+                if persona:
+                    messages = [ChatMessage(role="system", content=persona), *messages]
                 model_calls += 1
                 try:
                     response = self._provider.complete(messages, schemas, task.token)

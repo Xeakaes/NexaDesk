@@ -58,6 +58,11 @@ STRINGS: dict[str, dict[str, str]] = {
     "settings.lang": {"tr": "Dil", "en": "Language"},
     "settings.lang_tr": {"tr": "Türkçe", "en": "Turkish"},
     "settings.lang_en": {"tr": "İngilizce", "en": "English"},
+    "settings.persona": {"tr": "Persona (system prompt)", "en": "Persona (system prompt)"},
+    "settings.persona_hint": {
+        "tr": "Modelin kişiliği — boşsa varsayılan davranış. Kaydettikten sonra geçerli olur.",
+        "en": "The model's personality — empty means default behavior. Applies after saving.",
+    },
     "settings.pack_title": {"tr": "Özel karakter", "en": "Custom character"},
     "settings.pack_pick": {"tr": "Fotoğraf seç…", "en": "Choose photo…"},
     "settings.pack_name": {"tr": "Paket adı", "en": "Pack name"},

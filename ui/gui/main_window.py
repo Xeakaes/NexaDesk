@@ -299,9 +299,22 @@ class ChatWindow(QMainWindow):
                 self._secrets_path,
                 self._ui_json_path,
             )
+            self._settings_win.saved.connect(self._on_settings_saved)
         self._settings_win.load()
         self._settings_win.show()
         self._settings_win.raise_()
+
+    def _on_settings_saved(self) -> None:
+        """Apply runtime-affecting settings without a restart (persona)."""
+        if self._runtime is None:
+            return
+        try:
+            from core.config import load_settings
+
+            settings = load_settings(self._settings_path)
+        except Exception:
+            return
+        self._runtime.set_persona(str((settings.get("agent") or {}).get("persona", "")))
 
     # --- sessions ---
 
