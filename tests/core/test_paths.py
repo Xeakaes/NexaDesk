@@ -17,6 +17,9 @@ def test_config_dir_frozen_uses_home(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "bundle"), raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    # GitHub Actions sets XDG_* — clear so the HOME fallback is exercised.
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path))
     if os.name == "nt":
         assert paths.config_dir() == tmp_path / "appdata" / "NexaDesk"
@@ -72,6 +75,8 @@ def test_assets_dir_dev(monkeypatch):
 def test_data_dir_creates(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path))
     d = paths.data_dir()
     assert d.exists() and d.is_dir()
@@ -84,6 +89,8 @@ def test_ensure_user_config_seeds_from_template(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "bundle"), raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path))
     tpl = tmp_path / "bundle" / "config_template"
     tpl.mkdir(parents=True)
@@ -122,6 +129,8 @@ def test_ensure_user_config_writes_defaults_without_template(monkeypatch, tmp_pa
     (tmp_path / "empty-bundle").mkdir()
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path))
     paths.ensure_user_config()
     settings = paths.config_dir() / "settings.json"
@@ -134,6 +143,8 @@ def test_ensure_user_config_noop_when_exists(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "b"), raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path))
     cfg = paths.config_dir()
     cfg.mkdir(parents=True)
@@ -147,6 +158,8 @@ def test_migrate_legacy_dirs_moves_data_and_config(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "b"), raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path))
     if os.name == "nt":
         pytest.skip("windows legacy dir layout differs")
@@ -168,6 +181,8 @@ def test_migrate_legacy_dirs_does_not_overwrite(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "b"), raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path))
     if os.name == "nt":
         pytest.skip("windows legacy dir layout differs")
@@ -203,6 +218,8 @@ def test_migrate_legacy_dirs_runs_once_via_marker(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "b"), raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path))
     if os.name == "nt":
         pytest.skip("windows legacy dir layout differs")
