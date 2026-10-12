@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from core.agent.telemetry import log_event
+
 EVENT_NAMES = (
     "agent_started",
     "assistant_message",
@@ -51,4 +53,12 @@ class EventBus:
         targets = list(self._subs.get(name, ()))
         targets.extend(self._subs.get("*", ()))
         for cb in targets:
-            cb(event)
+            try:
+                cb(event)
+            except Exception as exc:  # noqa: BLE001 — one bad subscriber must not kill the bus
+                log_event(
+                    "subscriber_error",
+                    event_name=name,
+                    callback=getattr(cb, "__qualname__", repr(cb)),
+                    error=repr(exc),
+                )
