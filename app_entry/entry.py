@@ -86,8 +86,83 @@ def _server_healthy(host: str, port: int) -> bool:
         return False
 
 
+def _read_cmdline(pid: int) -> str:
+    """Best-effort command line of a process (cross-platform)."""
+    if os.name == "nt":
+        try:
+            out = subprocess.run(
+                ["wmic", "process", "where", f"processid={pid}", "get", "commandline"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        return out.stdout
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        return raw.replace(b"\x00", b" ").decode("utf-8", "replace")
+    except OSError:
+        pass
+    try:
+        out = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "args="],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return out.stdout
+
+
+_SERVER_CMDLINE_MARKERS = (
+    "serve-screen-control",
+    "vendor.sc_server.server",
+    "vendor/sc_server/server.py",
+)
+
+
+def _is_our_server(pid: int) -> bool:
+    cmdline = _read_cmdline(pid)
+    return any(marker in cmdline for marker in _SERVER_CMDLINE_MARKERS)
+
+
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        return True  # best effort; no safe liveness probe without extra deps
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def _port_owner_pids(port: int) -> list[int]:
-    """PIDs listening on the port, via ss (matches any binary holding it)."""
+    """PIDs listening on the port (any binary holding it)."""
+    if os.name == "nt":
+        try:
+            out = subprocess.run(
+                ["netstat", "-ano", "-p", "tcp"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        pids = set()
+        for line in out.stdout.splitlines():
+            if "LISTENING" not in line:
+                continue
+            parts = line.split()
+            if len(parts) < 5 or not parts[1].endswith(f":{port}"):
+                continue
+            if parts[-1].isdigit():
+                pids.add(int(parts[-1]))
+        return sorted(p for p in pids if p != os.getpid())
     try:
         out = subprocess.run(
             ["ss", "-lptnH", f"sport = :{port}"],
@@ -104,6 +179,8 @@ def _port_owner_pids(port: int) -> list[int]:
 
 def _pattern_pids(port: int) -> list[int]:
     """PIDs of leftover frozen spawns (cmdline fallback when ss is missing)."""
+    if os.name == "nt":
+        return []
     pattern = rf"serve-screen-control.*--port[= ]{port}\b"
     try:
         out = subprocess.run(
@@ -122,34 +199,51 @@ def _pattern_pids(port: int) -> list[int]:
     ]
 
 
-def _kill_stale_server(port: int) -> None:
-    """Best-effort terminate whatever holds the screen-control port.
+def _kill_stale_server(port: int) -> bool:
+    """Terminate leftover NexaDesk screen-control servers holding the port.
 
-    Kills by port owner (ss) first so a leftover dev server
-    (`python -m vendor.sc_server.server`, which has no
-    `--serve-screen-control` in its cmdline) is replaced too; falls back to
-    the spawn cmdline pattern when ss is unavailable. Called only after the
-    health check already rejected the server, so anything on the port is
-    unusable by definition.
+    Only PIDs whose cmdline identifies them as the NexaDesk screen-control
+    server are killed; an unrelated application on the port is never touched.
+    Returns True when the port was freed (best effort), False when the holder
+    is not ours and the caller must surface the conflict instead of spawning.
     """
-    pids = _port_owner_pids(port) or _pattern_pids(port)
-    for sig in (signal.SIGTERM, signal.SIGKILL):
+    port_pids = _port_owner_pids(port)
+    ours = [pid for pid in port_pids if _is_our_server(pid)]
+    if not ours:
+        ours = [pid for pid in _pattern_pids(port) if _is_our_server(pid)]
+    if not ours:
+        return False
+    sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
+    for sig in (signal.SIGTERM, sigkill):
         alive = []
-        for pid in pids:
+        for pid in ours:
             try:
                 os.kill(pid, sig)
                 alive.append(pid)
             except OSError:
                 pass
-        if sig is signal.SIGTERM:
+        if sig == signal.SIGTERM:
             time.sleep(0.4)
-            pids = [
-                pid
-                for pid in alive
-                if os.path.exists(f"/proc/{pid}")
-            ]
-            if not pids:
-                return
+            ours = [pid for pid in alive if _pid_alive(pid)]
+            if not ours:
+                return True
+    return True
+
+
+def _server_healthy_retry(
+    host: str, port: int, attempts: int = 3, delay_s: float = 0.3
+) -> bool:
+    """Probe the server several times before declaring it dead.
+
+    A single 1s probe can misjudge a busy-but-alive server and needlessly
+    kill/replace it.
+    """
+    for i in range(attempts):
+        if _server_healthy(host, port):
+            return True
+        if i < attempts - 1:
+            time.sleep(delay_s)
+    return False
 
 
 def maybe_spawn_server(settings: dict, exe_path: str | None = None) -> str | None:
@@ -157,14 +251,23 @@ def maybe_spawn_server(settings: dict, exe_path: str | None = None) -> str | Non
     if not sc.get("enabled"):
         return None
     host = sc.get("host", "127.0.0.1")
+    if host not in ("127.0.0.1", "localhost"):
+        host = "127.0.0.1"  # defense in depth: hand-edited settings must not expose the LAN
     port = int(sc.get("port", 8745))
     listening = _port_open(host, port)
     if listening:
-        if _server_healthy(host, port):
+        if _server_healthy_retry(host, port):
             return None  # healthy server already running — reuse it
-        # Something holds the port but fails its endpoints (stale server from
-        # a previous run). Replace it, otherwise screenshot/OCR keep 500ing.
-        _kill_stale_server(port)
+        # Something holds the port but fails its endpoints. Replace it only
+        # when the holder is a leftover NexaDesk server; a foreign app on the
+        # port must never be killed.
+        if not _kill_stale_server(port):
+            print(
+                f"[nexadesk] port {port} is used by another application; "
+                "screen-control server not started",
+                file=sys.stderr,
+            )
+            return None
         for _ in range(20):
             if not _port_open(host, port):
                 break
@@ -203,7 +306,30 @@ def maybe_spawn_server(settings: dict, exe_path: str | None = None) -> str | Non
         )
     except OSError:
         return None
-    return str(proc.pid)
+    # Verify the child actually came up: a dead or half-started server must
+    # not be reported as a successful spawn (the caller would then keep
+    # retrying broken tool calls with no visible reason).
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        rc = proc.poll()
+        if rc is not None:
+            print(
+                f"[nexadesk] screen-control server exited with code {rc}",
+                file=sys.stderr,
+            )
+            return None
+        if _server_healthy(host, port):
+            return str(proc.pid)
+        time.sleep(0.2)
+    try:
+        proc.terminate()
+    except OSError:
+        pass
+    print(
+        "[nexadesk] screen-control server failed to become healthy; terminated",
+        file=sys.stderr,
+    )
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:

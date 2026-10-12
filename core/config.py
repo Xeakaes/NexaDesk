@@ -49,3 +49,23 @@ def ensure_secrets_mode(path: Path) -> None:
     mode = stat.S_IMODE(Path(path).stat().st_mode)
     if mode != 0o600:
         raise ConfigError(f"secrets file {path} must have mode 0600, got {oct(mode)}")
+
+
+def save_settings(path: Path, data: dict) -> None:
+    """Atomically write settings JSON (tmp + os.replace)."""
+    import tempfile
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(data, indent=2).encode("utf-8")
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(payload)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise

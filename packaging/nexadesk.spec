@@ -12,9 +12,28 @@ ROOT = Path(SPECPATH).resolve().parent
 
 app_version = os.environ.get("APP_VERSION", "0.0.0")
 
+
+def _vendor_datas():
+    """Copy vendor/ into the bundle, skipping dotfiles.
+
+    A stale vendor/sc_server/.token (session token of the developer's local
+    server) or .apikeys must never ship inside the artifact — anyone
+    extracting the bundle would find a live credential.
+    """
+    out = []
+    src = ROOT / "vendor"
+    for path in sorted(src.rglob("*")):
+        if not path.is_file():
+            continue
+        if any(part.startswith(".") for part in path.relative_to(src).parts):
+            continue
+        out.append((str(path), str(Path("vendor") / path.parent.relative_to(src))))
+    return out
+
+
 datas = [
     (str(ROOT / "assets"), "assets"),
-    (str(ROOT / "vendor"), "vendor"),
+    *_vendor_datas(),
     (str(ROOT / "config" / "settings.json"), "config_template"),
 ]
 if (ROOT / "_version.txt").exists():

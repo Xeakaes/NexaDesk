@@ -66,6 +66,23 @@ def test_ensure_user_config_seeds_from_template(monkeypatch, tmp_path):
         assert secrets.stat().st_mode & 0o777 == 0o600
 
 
+def test_create_empty_secrets_creates_private_file(tmp_path):
+    # Created via O_EXCL + 0600 so the file is never world-readable, not even
+    # for the instant between creation and a later chmod.
+    p = tmp_path / "secrets.json"
+    paths.create_empty_secrets(p)
+    assert p.exists()
+    if os.name != "nt":
+        assert p.stat().st_mode & 0o777 == 0o600
+
+
+def test_create_empty_secrets_never_overwrites(tmp_path):
+    p = tmp_path / "secrets.json"
+    p.write_text('{"api_key": "live"}', encoding="utf-8")
+    paths.create_empty_secrets(p)  # must be a no-op, not clobber the keys
+    assert p.read_text(encoding="utf-8") == '{"api_key": "live"}'
+
+
 def test_ensure_user_config_writes_defaults_without_template(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "empty-bundle"), raising=False)

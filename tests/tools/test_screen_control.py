@@ -72,6 +72,28 @@ def test_screenshot_calls_sdk_and_returns_path():
     assert client.calls[0][0] == "screenshot"
 
 
+def test_screenshot_ignores_model_supplied_path(monkeypatch, tmp_path):
+    monkeypatch.setattr("core.paths.data_dir", lambda: tmp_path)
+    client = FakeClient()
+    reg = _registry(client)
+    r = reg.get("screenshot").execute({"path": "/etc/nexadesk-evil.jpg"}, CancellationToken())
+    assert r.ok
+    out = client.calls[0][1]
+    assert out.startswith(str(tmp_path / "shots"))
+    assert "evil" not in out
+    assert r.data["path"] == out
+
+
+def test_screenshot_uses_unique_names_per_call(monkeypatch, tmp_path):
+    monkeypatch.setattr("core.paths.data_dir", lambda: tmp_path)
+    client = FakeClient()
+    reg = _registry(client)
+    reg.get("screenshot").execute({}, CancellationToken())
+    reg.get("screenshot").execute({}, CancellationToken())
+    outs = [c[1] for c in client.calls if c[0] == "screenshot"]
+    assert len(outs) == 2 and outs[0] != outs[1]
+
+
 def test_mouse_validates_action_and_forwards():
     client = FakeClient()
     reg = _registry(client)

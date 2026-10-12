@@ -52,12 +52,17 @@ class _ScreenshotTool(_ScreenControlTool):
         def run(client, args):
             import base64
             import io
-            import tempfile
+            import time
+            import uuid
             from pathlib import Path
 
-            path = args.get("path") or str(
-                Path(tempfile.gettempdir()) / "nexadesk-shot.jpg"
-            )
+            from core.paths import data_dir
+
+            # Security: never honor a model-supplied path — screenshots only
+            # land under our own data dir with a server-generated name.
+            shots = data_dir() / "shots"
+            shots.mkdir(parents=True, exist_ok=True)
+            path = str(shots / f"shot-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.jpg")
             client.screenshot(output=path)
             data = {"path": path}
             # Attach a resized base64 data-URI so vision models can see it.
@@ -160,7 +165,7 @@ def register_screen_control(
     registry.register(_ScreenshotTool(
         "screenshot",
         "Take a screenshot of the desktop and return its file path.",
-        {"type": "object", "properties": {"path": {"type": "string"}}, "required": []},
+        {"type": "object", "properties": {}, "required": []},
         client_factory,
     ))
     registry.register(_OcrScreenTool(

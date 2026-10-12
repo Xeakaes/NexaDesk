@@ -51,6 +51,16 @@ def test_spec_collects_ocr_engine_and_onnxruntime():
     assert 'collect_all("onnxruntime")' in text
 
 
+def test_spec_excludes_vendor_dotfiles():
+    # A stale vendor/sc_server/.token (session token of the developer's local
+    # server) must never ship inside the artifact — anyone extracting the
+    # bundle would find a live credential.
+    text = (ROOT / "packaging" / "nexadesk.spec").read_text()
+    assert 'startswith(".")' in text or "startswith('.')" in text, (
+        "the spec must filter dotfiles out of the vendor datas copy"
+    )
+
+
 def test_linux_build_smoke_checks_bundled_ocr():
     text = (ROOT / "packaging" / "build_linux.sh").read_text()
     assert "rapidocr" in text, "build must verify the OCR engine is bundled"

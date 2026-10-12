@@ -238,8 +238,10 @@ def _load_api_keys():
         pass
 
 def _save_api_keys():
-    """Save API keys to .apikeys file."""
-    with open(APIKEYS_FILE, "w", encoding="utf-8") as f:
+    """Save API keys to .apikeys file (atomic, 0600 — hashes only, but keep private)."""
+    tmp = APIKEYS_FILE + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write("# Screen Control API Keys\n")
         f.write("# Format: key\\tname (one per line)\n")
         f.write(f"# Generated: {datetime.now().isoformat()}\n\n")
@@ -248,10 +250,25 @@ def _save_api_keys():
             f.write(f"{key_hash}\t{name}"
                     + (f"\t{datetime.fromtimestamp(exp).isoformat()}" if exp else "")
                     + "\n")
+    os.replace(tmp, APIKEYS_FILE)
 
-# Write session token
-with open(SESSION_TOKEN_FILE, "w", encoding="utf-8") as _fh:
-    _fh.write(SESSION_TOKEN)
+def _write_session_token() -> None:
+    """Publish the session token AFTER the server has bound its port.
+
+    Never at import time: a racing second spawn imports this module before
+    knowing it cannot bind; an import-time write would clobber the LIVE
+    server's token and 401 every subsequent tool call. Atomic replace with
+    0600 perms.
+    """
+    tmp = SESSION_TOKEN_FILE + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(SESSION_TOKEN)
+    os.replace(tmp, SESSION_TOKEN_FILE)
+    try:
+        os.chmod(SESSION_TOKEN_FILE, 0o600)
+    except OSError:
+        pass
 
 # Load persistent keys
 _load_api_keys()
@@ -1442,7 +1459,13 @@ def main():
     print(f"Watchdog: held input auto-released after {HOLD_TIMEOUT_GAME:.0f}s (game) / {HOLD_TIMEOUT_NORMAL:.0f}s (normal)")
     print("Stop: Ctrl+C  |  Emergency: move cursor to top-left corner "
           "(not in game mode: use physical Esc/Alt+Tab)")
-    app.run(host=args.host, port=args.port, threaded=True)
+    # Bind first (raises on failure), THEN publish the token: a spawn that
+    # loses the bind race must leave the live server's token untouched.
+    from werkzeug.serving import make_server
+
+    server = make_server(args.host, args.port, app, threaded=True)
+    _write_session_token()
+    server.serve_forever()
 
 
 if __name__ == "__main__":

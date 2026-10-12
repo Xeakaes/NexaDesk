@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 import threading
 from pathlib import Path
@@ -20,7 +19,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QMessageBox, QMenu
 
 from core.bootstrap import build_runtime
-from core.config import load_settings
+from core.config import load_settings, save_settings
 from core.providers.base import ProviderError
 from ui.avatar.state_machine import reduce_event
 from ui.avatar.window import AvatarWindow
@@ -333,7 +332,7 @@ class App:
     def _switch_avatar(self, name: str) -> None:
         settings = load_settings(self.settings_path)
         settings["avatar"] = name
-        self.settings_path.write_text(json.dumps(settings, indent=2))
+        save_settings(self.settings_path, settings)
         self.bubble.append_message("tool", i18n.t("chat.avatar_selected", name=name))
 
     def quit(self) -> None:

@@ -34,3 +34,22 @@ def test_default_settings_values(tmp_path):
     p.write_text(json.dumps({}))
     s = load_settings(p)
     assert s["agent"] == {"max_tool_calls": 10, "tool_timeout_s": 30, "model_timeout_s": 60}
+
+def test_save_settings_is_atomic(tmp_path):
+    # Write must go through tmp + os.replace so a crash mid-write cannot
+    # leave a truncated/corrupt settings.json behind.
+    from core.config import save_settings
+    p = tmp_path / "settings.json"
+    save_settings(p, {"avatar": "teto"})
+    assert json.loads(p.read_text(encoding="utf-8")) == {"avatar": "teto"}
+    assert not list(tmp_path.glob("*.tmp"))
+
+def test_save_settings_preserves_other_keys(tmp_path):
+    from core.config import save_settings
+    p = tmp_path / "settings.json"
+    save_settings(p, {"provider": {"type": "groq"}, "avatar": "base"})
+    data = load_settings(p)
+    save_settings(p, {**data, "avatar": "teto"})
+    data2 = load_settings(p)
+    assert data2["provider"]["type"] == "groq"
+    assert data2["avatar"] == "teto"

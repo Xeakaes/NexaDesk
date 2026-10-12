@@ -485,7 +485,10 @@ class SettingsWindow(QWidget):
             provider["url"] = url
         settings["provider"] = provider
         sc = settings.get("screen_control") or {"enabled": True}
-        sc["host"] = self._sc_host.text().strip() or "127.0.0.1"
+        host = self._sc_host.text().strip() or "127.0.0.1"
+        if host not in ("127.0.0.1", "localhost"):
+            host = "127.0.0.1"  # docs promise loopback-only; clamp, never expose to LAN
+        sc["host"] = host
         sc["port"] = int(self._sc_port.value())
         settings["screen_control"] = sc
         per_tool = {tool: combo.currentText() for tool, combo in self._perm_tools.items()}

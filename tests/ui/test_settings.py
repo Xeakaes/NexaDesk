@@ -38,6 +38,46 @@ def test_settings_window_load_and_save(tmp_path):
     win.deleteLater()
 
 
+def test_settings_host_rejects_non_loopback(tmp_path):
+    # The docs promise "listens on 127.0.0.1 only"; a typed 0.0.0.0/lan-ip
+    # must be clamped back to loopback, not silently exposed to the LAN.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._sc_host.setText("0.0.0.0")
+    win.save()
+    import json
+
+    data = json.loads(settings.read_text())
+    assert data["screen_control"]["host"] == "127.0.0.1"
+    win.hide()
+    win.deleteLater()
+
+
+def test_settings_host_accepts_loopback_aliases(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._sc_host.setText("localhost")
+    win.save()
+    import json
+
+    data = json.loads(settings.read_text())
+    assert data["screen_control"]["host"] == "localhost"
+    win.hide()
+    win.deleteLater()
+
+
 def test_settings_persona_roundtrip(tmp_path):
     from PySide6.QtWidgets import QApplication
 

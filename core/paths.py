@@ -102,6 +102,23 @@ def migrate_legacy_dirs() -> None:
             pass
 
 
+def create_empty_secrets(path: Path) -> None:
+    """Create an empty secrets file with 0600 perms (never overwrite).
+
+    Uses O_EXCL + restrictive mode at creation so the file is never
+    world-readable, not even for the instant between creation and a
+    follow-up chmod (the old write_text + chmod pattern had that window).
+    """
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return
+    try:
+        os.write(fd, b"{}")
+    finally:
+        os.close(fd)
+
+
 def ensure_user_config() -> None:
     """Seed config_dir() with defaults on first frozen launch."""
     import json
@@ -127,10 +144,4 @@ def ensure_user_config() -> None:
                 ),
                 encoding="utf-8",
             )
-    secrets = cfg / "secrets.json"
-    if not secrets.exists():
-        secrets.write_text("{}", encoding="utf-8")
-        try:
-            os.chmod(secrets, 0o600)
-        except OSError:
-            pass
+    create_empty_secrets(cfg / "secrets.json")
