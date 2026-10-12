@@ -11,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -202,6 +203,8 @@ class SettingsWindow(QWidget):
         self._persona.setMinimumHeight(72)
         self._lbl_persona = QLabel(self)
         general_form.addRow(self._lbl_persona, self._persona)
+        self._update_check_cb = QCheckBox(self)
+        general_form.addRow("", self._update_check_cb)
         general_box = QGroupBox(self)
         general_box.setLayout(general_form)
 
@@ -347,6 +350,7 @@ class SettingsWindow(QWidget):
         self._lbl_mode.setText(t("settings.mode"))
         self._lbl_persona.setText(t("settings.persona"))
         self._persona.setPlaceholderText(t("settings.persona_hint"))
+        self._update_check_cb.setText(t("settings.update_check"))
         self._lbl_provider_type.setText(t("settings.provider_type"))
         self._lbl_provider_url.setText(t("settings.provider_url"))
         self._lbl_provider_model.setText(t("settings.provider_model"))
@@ -447,6 +451,9 @@ class SettingsWindow(QWidget):
         if idx >= 0:
             self._avatar.setCurrentIndex(idx)
         self._persona.setPlainText(str((settings.get("agent") or {}).get("persona", "")))
+        self._update_check_cb.setChecked(
+            bool((settings.get("updates") or {}).get("check_enabled", True))
+        )
         self._status.setText("")
 
     def save(self) -> None:
@@ -479,6 +486,9 @@ class SettingsWindow(QWidget):
         agent = settings.get("agent") or {}
         agent["persona"] = self._persona.toPlainText().strip()
         settings["agent"] = agent
+        updates = settings.get("updates") or {}
+        updates["check_enabled"] = self._update_check_cb.isChecked()
+        settings["updates"] = updates
         key_name = PROVIDER_KEY_SECRETS.get(ptype, "api_key")
         key_value = self._provider_key.text().strip()
         if key_value:

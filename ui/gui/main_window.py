@@ -5,8 +5,8 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QKeySequence, QKeyEvent, QShortcut
+from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QKeySequence, QKeyEvent, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -175,7 +175,24 @@ class ChatWindow(QMainWindow):
         bottom.addWidget(self._send_btn)
         bottom.addWidget(self._cancel_btn)
 
+        self._update_tag: str | None = None
+        self._update_banner = QFrame(self)
+        self._update_banner.setObjectName("update_banner")
+        self._update_banner.hide()
+        banner_l = QHBoxLayout(self._update_banner)
+        banner_l.setContentsMargins(10, 4, 10, 4)
+        self._update_label = QLabel(self._update_banner)
+        self._update_download_btn = QPushButton(self._update_banner)
+        self._update_download_btn.clicked.connect(self._open_update_page)
+        self._update_dismiss_btn = QPushButton(self._update_banner)
+        self._update_dismiss_btn.setObjectName("outline")
+        self._update_dismiss_btn.clicked.connect(self._update_banner.hide)
+        banner_l.addWidget(self._update_label, 1)
+        banner_l.addWidget(self._update_download_btn)
+        banner_l.addWidget(self._update_dismiss_btn)
+
         right = QVBoxLayout()
+        right.addWidget(self._update_banner)
         right.addWidget(self._scroll, 1)
         right.addWidget(self._activity)
         right.addLayout(bottom)
@@ -221,6 +238,7 @@ class ChatWindow(QMainWindow):
         self.retranslate()
         self._history.purge_empty_sessions()
         self.new_chat()
+        QTimer.singleShot(2000, self._schedule_update_check)
 
     # --- i18n / theme ---
 
@@ -241,6 +259,31 @@ class ChatWindow(QMainWindow):
         self._cancel_btn.setText(t("chat.cancel"))
         self._empty_title.setText(t("chat.empty_title"))
         self._empty_hint.setText(t("chat.empty_hint"))
+        self._update_download_btn.setText(t("update.download"))
+        self._update_dismiss_btn.setText(t("update.dismiss"))
+        self._refresh_update_banner_text()
+
+    # --- update check ---
+
+    def _schedule_update_check(self) -> None:
+        from core import __version__
+        from ui.update import schedule_update_check
+
+        schedule_update_check(self._settings_path, __version__, self._show_update_banner)
+
+    def _show_update_banner(self, tag: str) -> None:
+        self._update_tag = tag
+        self._refresh_update_banner_text()
+        self._update_banner.show()
+
+    def _refresh_update_banner_text(self) -> None:
+        tag = self._update_tag or ""
+        self._update_label.setText(i18n.t("update.banner", tag=tag))
+
+    def _open_update_page(self) -> None:
+        from ui.update import RELEASES_URL
+
+        QDesktopServices.openUrl(QUrl(RELEASES_URL))
 
     def _toggle_theme(self) -> None:
         prefs = load_prefs(self._ui_json_path)

@@ -63,6 +63,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "tr": "Modelin kişiliği — boşsa varsayılan davranış. Kaydettikten sonra geçerli olur.",
         "en": "The model's personality — empty means default behavior. Applies after saving.",
     },
+    "settings.update_check": {
+        "tr": "Açılışta güncelleme kontrolü",
+        "en": "Check for updates on startup",
+    },
+    "update.banner": {"tr": "Yeni sürüm mevcut: {tag}", "en": "New version available: {tag}"},
+    "update.download": {"tr": "İndir", "en": "Download"},
+    "update.dismiss": {"tr": "Kapat", "en": "Dismiss"},
     "settings.pack_title": {"tr": "Özel karakter", "en": "Custom character"},
     "settings.pack_pick": {"tr": "Fotoğraf seç…", "en": "Choose photo…"},
     "settings.pack_name": {"tr": "Paket adı", "en": "Pack name"},
