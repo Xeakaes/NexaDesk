@@ -194,6 +194,79 @@ def build_pack_from_state_images(
         raise
 
 
+def build_pack_from_emotion_images(
+    emotion_images: dict[str, Image.Image],
+    out_dir: Path,
+    name: str,
+    *,
+    preprocess: bool = True,
+) -> Path:
+    """Build a v2 pack from one base image per REQUIRED_EMOTIONS entry.
+
+    Each emotion still runs the background-strip → largest component →
+    crop/pad/resize pipeline (when ``preprocess=True``) once, then the
+    STATE_TRANSFORMS loop writes ``frames/<emotion>/<state>_XX.png`` and a
+    v2 manifest with the full emotion × state grid.
+    """
+    from ui.avatar.manifest import REQUIRED_EMOTIONS, REQUIRED_STATES
+
+    name = sanitize_pack_name(name)
+    missing = [e for e in REQUIRED_EMOTIONS if e not in emotion_images]
+    if missing:
+        raise PackError(f"missing emotions: {', '.join(missing)}")
+    if out_dir.exists():
+        raise PackError(f"exists: {out_dir}")
+    import shutil
+    import uuid
+
+    tmp_dir = out_dir.parent / f".{out_dir.name}.tmp-{uuid.uuid4().hex[:8]}"
+    try:
+        bases: dict[str, Image.Image] = {}
+        for emotion in REQUIRED_EMOTIONS:
+            img = emotion_images[emotion]
+            if preprocess:
+                try:
+                    img = keep_largest_component(strip_background(img))
+                    img = crop_pad_resize(img)
+                except PackError:
+                    raise
+                except Exception as exc:
+                    raise PackError(f"pipeline failed: {exc}") from exc
+            bases[emotion] = img
+
+        manifest: dict = {"name": name, "format": 2, "emotions": {}}
+        for emotion in REQUIRED_EMOTIONS:
+            frames_dir = tmp_dir / "frames" / emotion
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            manifest["emotions"][emotion] = {}
+            for state, cfg in STATE_TRANSFORMS.items():
+                n = max(
+                    len(cfg.get("dx") or [0]),
+                    len(cfg.get("dy") or [0]),
+                    len(cfg.get("tint") or [False]),
+                )
+                rels = []
+                for i in range(n):
+                    dx = (cfg.get("dx") or [0] * n)[i]
+                    dy = (cfg.get("dy") or [0] * n)[i]
+                    tint = (cfg.get("tint") or [False] * n)[i]
+                    frame = transform(bases[emotion], dx=dx, dy=dy, tint=tint)
+                    rel = f"frames/{emotion}/{state}_{i:02d}.png"
+                    frame.save(tmp_dir / rel)
+                    rels.append(rel)
+                manifest["emotions"][emotion][state] = {
+                    "frames": rels,
+                    "fps": cfg["fps"],
+                    "loop": cfg["loop"],
+                }
+        (tmp_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+        tmp_dir.rename(out_dir)
+        return out_dir
+    except BaseException:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+
+
 def build_pack(source_image: Path, out_dir: Path, name: str) -> Path:
     name = sanitize_pack_name(name)
     if out_dir.exists():
