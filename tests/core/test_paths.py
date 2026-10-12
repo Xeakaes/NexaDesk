@@ -194,3 +194,44 @@ def test_data_dir_honors_xdg_data_home(monkeypatch, tmp_path):
     d = paths.data_dir()
     assert d == tmp_path / "xdgdata" / "NexaDesk"
     assert d.exists()
+
+
+def test_migrate_legacy_dirs_runs_once_via_marker(monkeypatch, tmp_path):
+    # B53: the migration must not re-scan/re-move on every launch; a marker
+    # file gates it after the first successful run.
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "b"), raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path))
+    if os.name == "nt":
+        pytest.skip("windows legacy dir layout differs")
+    legacy_cfg = tmp_path / ".config" / "desktop-assistant"
+    legacy_cfg.mkdir(parents=True)
+    (legacy_cfg / "secrets.json").write_text('{"k": 1}', encoding="utf-8")
+    paths.migrate_legacy_dirs()
+    assert (paths.config_dir() / "secrets.json").exists()
+    assert (paths.config_dir() / ".legacy_migrated").exists()
+    # second run: create a new legacy dir+file; migration must skip (marker)
+    legacy_cfg.mkdir(parents=True, exist_ok=True)
+    (legacy_cfg / "more.json").write_text("{}", encoding="utf-8")
+    paths.migrate_legacy_dirs()
+    assert not (paths.config_dir() / "more.json").exists()
+
+
+def test_window_icon_path_finds_repo_icon():
+    # B52: the window/tray icon must resolve from the repo in dev mode.
+    p = paths.window_icon_path()
+    assert p is not None and p.is_file() and p.suffix == ".png"
+
+
+def test_settings_template_is_valid_json():
+    # B57: the tracked template must stay parseable and free of live edits.
+    import json
+
+    tpl = paths.repo_root() / "config_template" / "settings.json"
+    data = json.loads(tpl.read_text(encoding="utf-8"))
+    assert isinstance(data, dict) and "avatar" in data
+    # no secrets or provider keys may ship in the template
+    blob = tpl.read_text(encoding="utf-8").lower()
+    assert "api_key" not in blob and "token" not in blob

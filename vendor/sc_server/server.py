@@ -632,18 +632,17 @@ def screenshot():
 _last_gray = {"img": None}
 
 
-def _validated_region():
+def _validate_region_tuple(region):
     """
-    Parse and bound-check the ?region=x,y,w,h query parameter (SC-05).
-    Returns (x, y, w, h), None when absent, or raises ValueError with a
-    client-safe message on malformed/out-of-bounds input.
+    Bound-check a region given as a sequence (x, y, w, h) — same rules as
+    the ?region= query parameter. Returns (x, y, w, h) or raises ValueError
+    with a client-safe message (B49: POST bodies were unchecked before).
     """
-    r = request.args.get("region")
-    if not r:
+    if region is None:
         return None
     try:
-        x, y, w, h = (int(v) for v in r.split(","))
-    except ValueError:
+        x, y, w, h = (int(v) for v in region)
+    except (TypeError, ValueError):
         raise ValueError("region must be x,y,w,h integers")
     if not (0 < w <= MAX_REGION_DIM and 0 < h <= MAX_REGION_DIM):
         raise ValueError(f"region w/h must be within 1..{MAX_REGION_DIM}")
@@ -653,6 +652,18 @@ def _validated_region():
             -MAX_REGION_DIM <= y <= MAX_REGION_DIM):
         raise ValueError(f"region x/y must be within +-{MAX_REGION_DIM}")
     return (x, y, w, h)
+
+
+def _validated_region():
+    """
+    Parse and bound-check the ?region=x,y,w,h query parameter (SC-05).
+    Returns (x, y, w, h), None when absent, or raises ValueError with a
+    client-safe message on malformed/out-of-bounds input.
+    """
+    r = request.args.get("region")
+    if not r:
+        return None
+    return _validate_region_tuple(r.split(","))
 
 
 def _validated_scale() -> float:
@@ -892,7 +903,13 @@ def release_all_ep():
 def ocr():
     """OCR the screen (or a region) to extract text — the 'eyes' of the agent."""
     body = request.get_json(force=True, silent=True) or {}
-    region = body.get("region")
+    # B49: bound-check the body region exactly like the GET ?region= param —
+    # an unchecked zero/negative/huge region reaches the capture backend and
+    # either crashes it or captures the whole screen against the caller's intent.
+    try:
+        region = _validate_region_tuple(body.get("region"))
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     monitor = body.get("monitor")
     hwnd = body.get("hwnd")
     if monitor is None and hwnd is not None:
@@ -901,7 +918,7 @@ def ocr():
     with _read_lock:
         img = _b().screenshot(
             monitor=int(monitor) if monitor is not None else 1,
-            region=tuple(region) if region else None,
+            region=region,
         )
     engine = get_ocr_engine()
     if engine is None:

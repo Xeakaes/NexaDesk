@@ -404,10 +404,15 @@ class App:
 
 
 def build_ui() -> App:
-    from core.paths import ensure_user_config
+    from core.paths import ensure_user_config, window_icon_path
 
     ensure_user_config()
     app = QApplication.instance() or QApplication(sys.argv)
+    from PySide6.QtGui import QIcon
+
+    icon_path = window_icon_path()
+    if icon_path is not None:
+        app.setWindowIcon(QIcon(str(icon_path)))  # B52
     load_fonts(app)
     prefs = load_prefs(ui_json_path())
     i18n.set_language(prefs.lang)

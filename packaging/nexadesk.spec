@@ -34,8 +34,10 @@ def _vendor_datas():
 datas = [
     (str(ROOT / "assets"), "assets"),
     *_vendor_datas(),
-    (str(ROOT / "config" / "settings.json"), "config_template"),
+    (str(ROOT / "config_template" / "settings.json"), "config_template"),
 ]
+if (ROOT / "packaging" / "icon.png").exists():
+    datas.append((str(ROOT / "packaging" / "icon.png"), "packaging"))
 if (ROOT / "_version.txt").exists():
     datas.append((str(ROOT / "_version.txt"), "."))
 

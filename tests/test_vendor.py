@@ -213,3 +213,18 @@ def test_sdk_local_token_fallback_reads_sc_server_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(sdk, "__file__", str(srv / "sdk.py"))
     client = sdk.ScreenControl.__new__(sdk.ScreenControl)
     assert client._load_local_token() == "tok123"
+
+
+def test_ocr_body_region_rejects_bad_values(tmp_path, monkeypatch):
+    # B49: POST /api/ocr body region must be validated like the GET query
+    # parameter — zero/negative/huge regions must not reach the capture.
+    import vendor.sc_server.server as srv
+
+    client = srv.app.test_client()
+    # no auth needed? check token — use the session token from env or set one
+    srv.SESSION_TOKEN = "testtoken"
+    headers = {"X-Auth-Token": "testtoken", "Content-Type": "application/json"}
+    for bad in ([0, 0, 0, 0], [0, 0, -10, 10], [0, 0, 99999, 99999], [0, 0, 10]):
+        resp = client.post("/api/ocr", json={"region": bad}, headers=headers)
+        assert resp.status_code == 400, f"region {bad} should be rejected"
+        assert b"region" in resp.data.lower() or b"error" in resp.data.lower()

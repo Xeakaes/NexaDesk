@@ -910,3 +910,30 @@ def test_pack_failed_signal_carries_detail(tmp_path, monkeypatch):
     assert "the pipeline exploded" in win._status.text()
     win.hide()
     win.deleteLater()
+
+
+def test_pack_build_worker_is_plain_thread_not_qthread():
+    # B45: the pack-build worker must never parent a QThread to a widget —
+    # cross-thread QObject parenting is undefined behavior. The contract is
+    # a plain threading.Thread whose signals live on the UI-affine object.
+    import ast
+
+    from ui import settings as settings_mod
+    from ui.settings import _PackBuildWorker
+
+    src = Path(settings_mod.__file__).read_text()
+    tree = ast.parse(src)
+    worker_cls = next(
+        n for n in tree.body
+        if isinstance(n, ast.ClassDef) and n.name == "_PackBuildWorker"
+    )
+    # no QThread base class and no QThread(...) call inside the class
+    assert not any(
+        isinstance(b, ast.Name) and b.id == "QThread" for b in worker_cls.bases
+    )
+    assert not any(
+        isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "QThread"
+        for n in ast.walk(worker_cls)
+    )

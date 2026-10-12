@@ -69,6 +69,19 @@ def assets_dir() -> Path:
     return bundle_root() / "assets"
 
 
+def window_icon_path() -> Path | None:
+    """Absolute path of the window/tray icon, or None when unavailable (B52).
+
+    Frozen builds bundle it under <bundle>/packaging/; a dev checkout finds
+    it at the repo's packaging/icon.png.
+    """
+    for candidate in (bundle_root() / "packaging" / "icon.png",
+                      repo_root() / "packaging" / "icon.png"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def user_avatars_dir() -> Path:
     """Writable directory for user-built avatar packs (survives updates)."""
     d = config_dir() / "avatars"
@@ -112,7 +125,14 @@ def migrate_legacy_dirs() -> None:
     (history.db, …) in ~/.local/share/desktop-assistant (Windows: one
     %APPDATA%\\desktop-assistant folder). Move anything the new NexaDesk
     directories do not have yet, then remove the emptied legacy dirs.
+
+    B53: gated by a marker file so frozen builds do not re-scan/re-move on
+    every launch (a lingering half-migrated legacy dir would otherwise be
+    re-processed forever).
     """
+    marker = config_dir() / ".legacy_migrated"
+    if marker.exists():
+        return
     pairs = (
         (_legacy_config_dir(), config_dir()),
         (_legacy_data_dir(), data_dir()),
@@ -125,6 +145,12 @@ def migrate_legacy_dirs() -> None:
             old.rmdir()  # only succeeds when fully migrated
         except OSError:
             pass
+    # Write the marker even when no legacy dirs existed — the check is done.
+    config_dir().mkdir(parents=True, exist_ok=True)
+    try:
+        marker.write_text("1", encoding="utf-8")
+    except OSError:
+        pass
 
 
 def create_empty_secrets(path: Path) -> None:

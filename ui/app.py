@@ -87,6 +87,12 @@ def _build_runtime_or_none():
 def main() -> int:
     ensure_user_config()
     app = QApplication.instance() or QApplication(sys.argv)
+    from core.paths import window_icon_path
+    from PySide6.QtGui import QIcon
+
+    icon_path = window_icon_path()
+    if icon_path is not None:
+        app.setWindowIcon(QIcon(str(icon_path)))  # B52
     load_fonts(app)
     ui_json = ui_json_path()
     prefs = load_prefs(ui_json)

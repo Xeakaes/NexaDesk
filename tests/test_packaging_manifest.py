@@ -27,7 +27,7 @@ _REQ_TO_IMPORT = {
 _DEV_ONLY = {"pytest", "pyinstaller"}
 
 # Bundled by PyInstaller's own hooks; no spec entry needed.
-_AUTO_HOOKED = {"pyside6"}
+_AUTO_HOOKED = {"pyside6", "werkzeug"}
 
 
 def _parse_requirements(path: Path) -> list[str]:

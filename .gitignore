@@ -3,6 +3,10 @@ __pycache__/
 *.pyc
 config/secrets.json
 config/ui.json
+config/settings.json
+config/logs/
+config/update_check.json
+config/.legacy_migrated
 config/.token
 vendor/sc_server/.token
 vendor/sc_server/.apikeys
