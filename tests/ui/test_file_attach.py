@@ -38,8 +38,10 @@ def _win(tmp_path):
 
 
 def _img(tmp_path) -> str:
+    from PIL import Image
+
     p = tmp_path / "shot.png"
-    p.write_bytes(b"\x89PNG fake")
+    Image.new("RGB", (32, 32), (200, 30, 30)).save(p)
     return str(p)
 
 

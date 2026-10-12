@@ -68,3 +68,66 @@ def test_should_check_ignores_corrupt_state(tmp_path):
     state = tmp_path / "update_check.json"
     state.write_text("{corrupt")
     assert should_check(state) is True
+
+
+def test_schedule_check_does_not_record_before_fetch(tmp_path, monkeypatch):
+    # B44: recording before the fetch starts means a failed (offline) fetch
+    # burns the daily gate. The record must happen only AFTER a successful
+    # fetch, inside the worker.
+    import ui.update as upd
+
+    state = tmp_path / "update_check.json"
+    monkeypatch.setattr(upd, "update_state_path", lambda: state)
+    monkeypatch.setattr(upd, "update_check_enabled", lambda p: True)
+
+    calls = {"fetch": 0}
+
+    class SlowWorker:
+        def __init__(self, current, session=None, state_path=None):
+            self.signals = upd._UpdateSignals()
+            self._current = current
+
+        def start(self):
+            # fetch still in flight: nothing recorded yet
+            calls["fetch"] += 1
+            assert not state.exists(), "record_check must not run before fetch"
+
+    monkeypatch.setattr(upd, "UpdateCheckWorker", SlowWorker)
+    upd.schedule_update_check(tmp_path / "s.json", "0.1.0", lambda tag: None)
+    assert calls["fetch"] == 1
+
+
+def test_worker_records_check_only_on_success(tmp_path, monkeypatch):
+    import ui.update as upd
+
+    state = tmp_path / "update_check.json"
+    # success path: worker records after fetching a tag
+    worker = upd.UpdateCheckWorker(
+        "0.1.0", session=_FakeSession(tag="v9.9.9"), state_path=state
+    )
+    worker._run()
+    assert state.exists(), "successful fetch must record the check"
+    # failure path: no record — the daily gate stays open
+    state.unlink()
+    worker2 = upd.UpdateCheckWorker(
+        "0.1.0", session=_FakeSession(tag=None), state_path=state
+    )
+    worker2._run()
+    assert not state.exists(), "failed fetch must NOT burn the daily gate"
+
+
+class _FakeSession:
+    def __init__(self, tag):
+        self._tag = tag
+
+    def get(self, url, timeout=None):
+        tag = self._tag
+        status = 200 if tag else 500
+
+        class R:
+            status_code = status
+
+            def json(self):
+                return {"tag_name": tag} if tag else {}
+
+        return R()

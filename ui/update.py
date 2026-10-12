@@ -31,12 +31,17 @@ class _UpdateSignals(QObject):
 
 
 class UpdateCheckWorker:
-    """Fetches the latest release tag on a plain background thread."""
+    """Fetches the latest release tag on a plain background thread.
 
-    def __init__(self, current_version: str, session=None) -> None:
+    B44: the daily-gate record is written only AFTER a successful fetch —
+    an offline/failed probe must not burn the 24h slot.
+    """
+
+    def __init__(self, current_version: str, session=None, state_path: Path | None = None) -> None:
         self.signals = _UpdateSignals()
         self._current = current_version
         self._session = session
+        self._state_path = state_path
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self) -> None:
@@ -44,7 +49,11 @@ class UpdateCheckWorker:
 
     def _run(self) -> None:
         tag = fetch_latest_tag(session=self._session)
-        if tag and is_newer(tag, self._current):
+        if not tag:
+            return  # failed fetch: keep the gate open for the next launch
+        if self._state_path is not None:
+            record_check(self._state_path)
+        if is_newer(tag, self._current):
             self.signals.latest.emit(tag)
 
 
@@ -55,8 +64,8 @@ def schedule_update_check(settings_path: Path, current_version: str, on_newer) -
     state = update_state_path()
     if not should_check(state):
         return
-    record_check(state)
-    worker = UpdateCheckWorker(current_version)
+    # B44: do NOT record here — the worker records after a successful fetch.
+    worker = UpdateCheckWorker(current_version, state_path=state)
     worker.signals.latest.connect(on_newer)
     # Keep the worker alive until the thread finishes.
     schedule_update_check._last_worker = worker  # type: ignore[attr-defined]
