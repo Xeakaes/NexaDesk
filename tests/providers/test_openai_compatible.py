@@ -327,6 +327,20 @@ def test_model_request_logs_usage_and_ratelimit_headers(tmp_path, monkeypatch):
     assert rec["ratelimit"]["x-ratelimit-remaining-requests"] == "999"
 
 
+def test_model_request_logs_provider_key(tmp_path, monkeypatch):
+    # B19: telemetry must report the configured provider (groq/github/...),
+    # not the hardcoded base-class value, or the logs mislead every
+    # rate-limit investigation.
+    log = _telemetry_log(tmp_path, monkeypatch)
+    session = ScriptedSession([FakeResponse(_payload(content="ok"))])
+    p = OpenAICompatibleProvider(
+        "http://api", "key", "m", session=session, provider_key="groq"
+    )
+    p.complete(_msgs(), [], CancellationToken())
+    rec = next(r for r in _records(log) if r["event"] == "model_request")
+    assert rec["provider"] == "groq"
+
+
 def test_failed_request_logs_attempt(tmp_path, monkeypatch):
     log = _telemetry_log(tmp_path, monkeypatch)
     session = FakeSession(exc=requests.Timeout("slow"))

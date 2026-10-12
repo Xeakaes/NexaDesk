@@ -211,7 +211,7 @@ class OpenAICompatibleProvider(ModelProvider):
                 usage = payload.get("usage")
         log_event(
             "model_request",
-            provider="openai_compatible",
+            provider=self.provider_key,
             model=self.model,
             attempt=attempt,
             status=status,
