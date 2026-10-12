@@ -28,7 +28,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui.avatar.ai_pack import AiPackCancelled, build_ai_pack
 from ui.avatar.pack import PackError, build_pack, delete_pack, sanitize_pack_name
+from core.providers.image_gen import ImageGenClient, ImageGenError
 from ui.i18n import i18n, language_bridge
 from ui.paths import SECRETS_PATH, SETTINGS_PATH, ui_json_path
 from ui.prefs import THEMES, load_prefs, save_prefs, UiPrefs
@@ -121,6 +123,59 @@ class _ModelListSignals(QObject):
 
     finished = Signal(list)  # model ids
     failed = Signal()
+
+
+class _AiPackSignals(QObject):
+    """Signal carrier for the AI pack worker; UI-thread affine."""
+
+    progress = Signal(str, int, int)  # state, index, total
+    succeeded = Signal(str)  # pack name
+    failed = Signal(str)  # error text
+    cancelled = Signal()
+
+
+class _AiPackWorker:
+    """Runs build_ai_pack on a plain thread (same pattern as _PackBuildWorker)."""
+
+    def __init__(self, src: Path, out: Path, name: str, model: str, client) -> None:
+        self.signals = _AiPackSignals()
+        self._src = src
+        self._out = out
+        self._name = name
+        self._model = model
+        self._client = client
+        self._cancel = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def wait(self, ms: int = 5000) -> bool:
+        self._thread.join(timeout=ms / 1000.0)
+        return not self._thread.is_alive()
+
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    def _run(self) -> None:
+        def generate(state: str, prompt: str) -> bytes:
+            return self._client.generate(self._model, prompt, photo=self._src)
+
+        try:
+            build_ai_pack(
+                self._src,
+                self._out,
+                self._name,
+                generate,
+                progress=self.signals.progress.emit,
+                cancelled=self._cancel.is_set,
+            )
+        except AiPackCancelled:
+            self.signals.cancelled.emit()
+        except Exception as exc:  # noqa: BLE001 — surfaced via the failed slot
+            self.signals.failed.emit(str(exc))
+        else:
+            self.signals.succeeded.emit(self._name)
 
 
 class _ModelListWorker:
@@ -346,6 +401,8 @@ class SettingsWindow(QWidget):
         self._pack_name.textChanged.connect(self._update_build_enabled)
         self._ai_generate.setEnabled(False)
         self._ai_model.editTextChanged.connect(self._update_build_enabled)
+        self._ai_generate.clicked.connect(self._start_ai_pack)
+        self._ai_cancel.clicked.connect(self._cancel_ai_pack)
         self._ai_fetch_gen = 0  # F2: latest AI catalog fetch wins
 
         language_bridge.changed.connect(self._on_language_changed)
@@ -502,6 +559,74 @@ class SettingsWindow(QWidget):
     def _on_ai_models_failed(self, gen: int | None = None) -> None:
         if gen is not None and gen != self._ai_fetch_gen:
             return
+
+    def _ai_client(self) -> ImageGenClient:
+        """Build an ImageGenClient from the current provider form values."""
+        from core.providers import preset_url
+
+        ptype = self._provider_type.currentText()
+        base_url = self._provider_url.text().strip() or preset_url(ptype)
+        key_name = PROVIDER_KEY_SECRETS.get(ptype, "api_key")
+        key_value = self._provider_key.text().strip()
+        if not key_value:
+            key_value = str(self._read(self._secrets_path).get(key_name, ""))
+        return ImageGenClient(base_url, key_value)
+
+    def _start_ai_pack(self) -> None:
+        src = self._pack_path.text().strip()
+        if not src:
+            self._status.setText(i18n.t("settings.pack_bad_image"))
+            return
+        try:
+            name = sanitize_pack_name(self._pack_name.text() or Path(src).stem)
+        except PackError:
+            self._status.setText(i18n.t("settings.pack_bad_image"))
+            return
+        model = self._ai_model.currentText().strip()
+        if not model:
+            return
+        from core.paths import user_avatars_dir
+
+        out = user_avatars_dir() / name
+        self._ai_generate.setEnabled(False)
+        self._ai_cancel.show()
+        self.setCursor(Qt.CursorShape.WaitCursor)
+        worker = _AiPackWorker(Path(src), out, name, model, self._ai_client())
+        self._ai_worker = worker
+        worker.signals.progress.connect(self._on_ai_progress)
+        worker.signals.succeeded.connect(self._on_ai_succeeded)
+        worker.signals.failed.connect(self._on_ai_failed)
+        worker.signals.cancelled.connect(self._on_ai_cancelled)
+        worker.start()
+
+    def _cancel_ai_pack(self) -> None:
+        worker = getattr(self, "_ai_worker", None)
+        if worker is not None:
+            worker.cancel()
+
+    def _on_ai_progress(self, state: str, index: int, total: int) -> None:
+        self._status.setText(
+            i18n.t("settings.ai_progress", i=index, total=total, name=state)
+        )
+
+    def _on_ai_succeeded(self, name: str) -> None:
+        self.unsetCursor()
+        self._ai_cancel.hide()
+        self._update_build_enabled()
+        self._on_pack_built(name)
+        self._status.setText(i18n.t("settings.ai_success", name=name))
+
+    def _on_ai_failed(self, error: str) -> None:
+        self.unsetCursor()
+        self._ai_cancel.hide()
+        self._update_build_enabled()
+        self._status.setText(i18n.t("settings.ai_failed", error=error))
+
+    def _on_ai_cancelled(self) -> None:
+        self.unsetCursor()
+        self._ai_cancel.hide()
+        self._update_build_enabled()
+        self._status.setText("")
 
     def load(self) -> None:
         settings = self._read(self._settings_path)

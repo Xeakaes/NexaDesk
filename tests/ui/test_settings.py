@@ -577,3 +577,143 @@ def test_ai_generate_gated_on_model_and_photo(tmp_path):
     assert not win._ai_generate.isEnabled()
     win.hide()
     win.deleteLater()
+
+
+def test_ai_generate_success_reuses_pack_built_slot(tmp_path, monkeypatch):
+    import json
+    import threading
+
+    from PySide6.QtWidgets import QApplication
+
+    import ui.settings as sw
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    cfg = tmp_path / "cfg"
+    bundle = tmp_path / "bundle_assets"
+    (bundle / "avatars").mkdir(parents=True)
+    monkeypatch.setattr("core.paths.assets_dir", lambda: bundle)
+    monkeypatch.setattr("core.paths.config_dir", lambda: cfg)
+
+    def fake_build(photo, out, name, generate, *, progress=None, cancelled=None):
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "manifest.json").write_text(json.dumps({"name": name, "states": {}}))
+        for state, i, n in [("idle", 1, 5), ("thinking", 2, 5), ("working", 3, 5),
+                            ("speaking", 4, 5), ("error", 5, 5)]:
+            if progress:
+                progress(state, i, n)
+        return out
+
+    monkeypatch.setattr(sw, "build_ai_pack", fake_build)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    photo = tmp_path / "photo.png"
+    photo.write_bytes(b"fake")
+    win._pack_path.setText(str(photo))
+    win._pack_name.setText("Ai Hero")
+    win._ai_model.setCurrentText("gpt-image-1")
+    win._start_ai_pack()
+    assert win._ai_worker is not None
+    assert win._ai_worker.wait(5000)
+    for _ in range(50):
+        app.processEvents()
+        if win._avatar.findText("ai_hero") >= 0:
+            break
+        threading.Event().wait(0.05)
+    assert win._avatar.findText("ai_hero") >= 0
+    from ui.i18n import i18n
+
+    assert win._status.text() == i18n.t("settings.ai_success", name="ai_hero")
+    win.hide()
+    win.deleteLater()
+
+
+def test_ai_generate_cancel_removes_partial_and_reenables(tmp_path, monkeypatch):
+    import threading
+
+    from PySide6.QtWidgets import QApplication
+
+    import ui.settings as sw
+    from ui.avatar.ai_pack import AiPackCancelled
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    cfg = tmp_path / "cfg"
+    bundle = tmp_path / "bundle_assets"
+    (bundle / "avatars").mkdir(parents=True)
+    monkeypatch.setattr("core.paths.assets_dir", lambda: bundle)
+    monkeypatch.setattr("core.paths.config_dir", lambda: cfg)
+
+    gate = threading.Event()
+    started = threading.Event()
+
+    def blocking_build(photo, out, name, generate, *, progress=None, cancelled=None):
+        started.set()
+        gate.wait(5)
+        raise AiPackCancelled()
+
+    monkeypatch.setattr(sw, "build_ai_pack", blocking_build)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    photo = tmp_path / "photo.png"
+    photo.write_bytes(b"fake")
+    win._pack_path.setText(str(photo))
+    win._pack_name.setText("cxl")
+    win._ai_model.setCurrentText("gpt-image-1")
+    win._start_ai_pack()
+    assert started.wait(5)
+    win._ai_worker.cancel()
+    gate.set()
+    assert win._ai_worker.wait(5000)
+    for _ in range(50):
+        app.processEvents()
+        if win._ai_generate.isEnabled():
+            break
+        threading.Event().wait(0.05)
+    assert win._ai_generate.isEnabled()
+    assert not (cfg / "avatars" / "cxl").exists()
+    win.hide()
+    win.deleteLater()
+
+
+def test_ai_generate_failure_shows_status(tmp_path, monkeypatch):
+    import threading
+
+    from PySide6.QtWidgets import QApplication
+
+    import ui.settings as sw
+    from core.providers.image_gen import ImageGenError
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    cfg = tmp_path / "cfg"
+    bundle = tmp_path / "bundle_assets"
+    (bundle / "avatars").mkdir(parents=True)
+    monkeypatch.setattr("core.paths.assets_dir", lambda: bundle)
+    monkeypatch.setattr("core.paths.config_dir", lambda: cfg)
+
+    def failing_build(photo, out, name, generate, *, progress=None, cancelled=None):
+        raise ImageGenError("429 rate limited", status_code=429)
+
+    monkeypatch.setattr(sw, "build_ai_pack", failing_build)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    photo = tmp_path / "photo.png"
+    photo.write_bytes(b"fake")
+    win._pack_path.setText(str(photo))
+    win._pack_name.setText("boom")
+    win._ai_model.setCurrentText("gpt-image-1")
+    win._start_ai_pack()
+    assert win._ai_worker.wait(5000)
+    for _ in range(50):
+        app.processEvents()
+        if "429" in win._status.text():
+            break
+        threading.Event().wait(0.05)
+    assert "429" in win._status.text()
+    assert win._ai_generate.isEnabled()
+    win.hide()
+    win.deleteLater()
