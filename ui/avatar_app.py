@@ -140,6 +140,16 @@ class App:
         # B29 + B24 + B28: screen_control, provider and persona changes must
         # reach the live runtime on every save — not only during first-run
         # setup. Mirrors the main window's handler.
+        # B42: theme picked in Settings must apply live, not after a restart.
+        try:
+            prefs = load_prefs(self._prefs_path)
+            app = QApplication.instance()
+            if app is not None:
+                from ui.theme import qss
+
+                app.setStyleSheet(qss(prefs.theme))
+        except Exception:
+            pass
         apply_screen_control(self.runtime, self.settings_path, self.secrets_path)
         configured = reload_provider(
             self.runtime, self.settings_path, self.secrets_path
@@ -260,6 +270,9 @@ class App:
     def _on_finished(self, final: str) -> None:
         self.bubble.set_busy(False)
         self.bubble.set_tool_activity("")
+        if final:
+            # B32: _run_agent's exception path emits finished(text); show it.
+            self.bubble.append_message("assistant", final)
 
     def _on_cancel(self) -> None:
         self.runtime.cancel_active_task()

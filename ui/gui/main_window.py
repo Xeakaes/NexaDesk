@@ -409,6 +409,14 @@ class ChatWindow(QMainWindow):
 
     def _on_settings_saved(self) -> None:
         """Apply runtime-affecting settings without a restart (persona)."""
+        # B42: theme picked in Settings must apply live, not after a restart.
+        try:
+            prefs = load_prefs(self._ui_json_path)
+            app = QApplication.instance()
+            if app is not None:
+                app.setStyleSheet(qss(prefs.theme))
+        except Exception:
+            pass
         if self._runtime is None:
             return
         try:
@@ -483,11 +491,17 @@ class ChatWindow(QMainWindow):
         if not confirm_delete_session(self, title):
             return
         was_active = session_id == self._session_id
-        if was_active and self._busy and self._runtime is not None:
+        # B39: cancel the task whenever the DELETED session owns it — even if
+        # the user is currently viewing another chat. The was_active+busy
+        # branch keeps the legacy behavior when _active_task_session was not
+        # tracked (e.g. tests, older flows).
+        if self._runtime is not None and (
+            self._active_task_session == session_id
+            or (was_active and self._busy)
+        ):
             self._runtime.cancel_active_task()
-            self._set_busy(False)
-        if self._active_task_session == session_id:
             self._active_task_session = None
+            self._set_busy(False)
         self._history.delete_session(session_id)
         if was_active:
             self._session_id = None
@@ -629,10 +643,15 @@ class ChatWindow(QMainWindow):
         if name == "agent_started":
             self._set_busy(True)
         elif name == "tool_started":
+            # B33: only draw activity from the chat the user is looking at.
+            if event.session_id != self._session_id:
+                return
             tool = payload.get("tool_name", "")
             self._signals.tool.emit("tool", i18n.t("chat.tool_started_line", name=tool), True)
             self._activity.setText(i18n.t("chat.activity_running", name=tool))
         elif name == "tool_finished":
+            if event.session_id != self._session_id:
+                return
             tool = payload.get("tool_name", "")
             ok = bool(payload.get("ok"))
             key = "chat.tool_finished_ok" if ok else "chat.tool_finished_fail"
@@ -659,6 +678,8 @@ class ChatWindow(QMainWindow):
                 self._active_task_session = None
                 self._signals.error.emit(f"({code}): {msg}", event.session_id)
         elif name == "provider_notice":
+            if event.session_id != self._session_id:
+                return
             if payload.get("code") == "vision_disabled":
                 self._signals.tool.emit(
                     "tool", i18n.t("chat.vision_disabled"), True

@@ -288,3 +288,14 @@ def test_avatar_error_resets_emotion(tmp_path, monkeypatch):
     ui._on_event(ev)
     assert "neutral" in seen
     ui.close()
+
+
+def test_avatar_finished_with_final_text_appends_error(tmp_path, monkeypatch):
+    # B32: _run_agent's exception path emits finished(text); the text must
+    # reach the bubble, not vanish.
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui.bubble.setVisible(True)
+    ui._on_finished("Hata: patladı")
+    lines = ui.bubble._transcript.toPlainText()
+    assert "Hata: patladı" in lines
+    ui.close()

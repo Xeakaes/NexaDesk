@@ -157,6 +157,9 @@ class BubbleWindow(QFrame):
     def _close_session_picker(self) -> None:
         if self._session_picker is not None:
             self._session_picker.close()
+            # B43: schedule deletion so repeated open/close cycles do not
+            # accumulate hidden Tool windows until the bubble dies.
+            self._session_picker.deleteLater()
             self._session_picker = None
 
     def hideEvent(self, event) -> None:

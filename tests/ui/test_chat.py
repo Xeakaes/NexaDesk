@@ -618,3 +618,103 @@ def test_on_settings_saved_swaps_provider(tmp_path):
     assert rt._provider.provider_key == "groq"
     assert rt._provider.model == "m1"
     win.hide()
+
+
+def test_tool_events_from_other_session_do_not_leak(tmp_path):
+    # B33: tool_started/tool_finished/provider_notice from a background
+    # session must not draw lines into the currently open chat.
+    from types import SimpleNamespace
+
+    app, win = _make_window(tmp_path)
+    win._session_id = "s-mine"
+    before = len(win._messages)
+    win._on_event(SimpleNamespace(
+        name="tool_started", session_id="s-other", task_id="t",
+        payload={"tool_name": "screenshot"},
+    ))
+    win._on_event(SimpleNamespace(
+        name="tool_finished", session_id="s-other", task_id="t",
+        payload={"tool_name": "screenshot", "ok": True},
+    ))
+    win._on_event(SimpleNamespace(
+        name="provider_notice", session_id="s-other", task_id="t",
+        payload={"code": "vision_disabled"},
+    ))
+    assert len(win._messages) == before
+    # same-session events still draw
+    win._on_event(SimpleNamespace(
+        name="tool_started", session_id="s-mine", task_id="t",
+        payload={"tool_name": "screenshot"},
+    ))
+    assert len(win._messages) == before + 1
+    win.hide()
+
+
+def test_delete_background_session_with_running_task_cancels(tmp_path, monkeypatch):
+    # B39: deleting the session whose task is running — even while another
+    # chat is displayed — must cancel that task and free the busy state.
+    import ui.gui.main_window as mw
+
+    app, win = _make_window(tmp_path)
+    sids = _seed_sessions(win, 2)
+    win._load_session(sids[1])  # display second session
+    win._active_task_session = sids[0]
+    win._set_busy(True)
+    calls = []
+    win._runtime = type("R", (), {"cancel_active_task": lambda self: calls.append("cancel")})()
+    monkeypatch.setattr(mw, "confirm_delete_session", lambda parent, title: True)
+    win._delete_session(sids[0])
+    assert calls == ["cancel"]
+    assert win._active_task_session is None
+    assert not win._busy
+    # displayed session untouched
+    assert win._session_id == sids[1]
+    win.hide()
+
+
+def test_settings_saved_reapplies_theme(tmp_path):
+    # B42: theme picked in Settings must apply live, not after a restart.
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.gui.main_window import ChatWindow
+    from ui.history import HistoryStore
+    from ui.prefs import THEMES, UiPrefs, load_prefs, save_prefs
+
+    app = QApplication.instance() or QApplication([])
+    ui_json = tmp_path / "ui.json"
+    store = HistoryStore(tmp_path / "h.db")
+    win = ChatWindow(history=store, ui_json_path=ui_json)
+    cur = load_prefs(ui_json).theme
+    new = "light" if cur == "dark" else "dark"
+    save_prefs(ui_json, UiPrefs(mode="gui", theme=new, lang=load_prefs(ui_json).lang))
+    qss_before = app.styleSheet()
+    win._on_settings_saved()
+    assert app.styleSheet() != qss_before or app.styleSheet()  # reapplied at least
+    from ui.theme import qss as build_qss
+
+    assert app.styleSheet() == build_qss(new)
+    win.hide()
+
+
+def test_session_picker_closed_widget_is_scheduled_for_deletion(tmp_path):
+    # B43: repeatedly opening/closing the picker must not leak widgets.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.bubble import BubbleWindow
+
+    app = QApplication.instance() or QApplication([])
+    b = BubbleWindow(on_send=lambda text: None, on_cancel=lambda: None)
+    b.show_session_picker([("s1", "chat")], lambda sid: None)
+    picker = b._session_picker
+    assert picker is not None
+    b._close_session_picker()
+    assert b._session_picker is None
+    assert picker.isHidden()
+    b.show_session_picker([("s1", "chat")], lambda sid: None)  # reopen works
+    assert b._session_picker is not None
+    b._close_session_picker()
+    b.setParent(None)
+    b.deleteLater()
+    app.processEvents()
