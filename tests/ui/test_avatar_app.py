@@ -235,3 +235,56 @@ def test_avatar_pos_clamps_to_secondary_screen(tmp_path, monkeypatch):
     app, ui, rt = _make_app(tmp_path, monkeypatch)
     x, y = ui._initial_avatar_pos(primary.geometry())
     assert (x, y) == (2000, 200)
+
+
+def test_avatar_assistant_emotion_sets_emotion(tmp_path, monkeypatch):
+    """F1: assistant_emotion must switch the avatar emotion axis."""
+    from core.events import Event
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui._sid = ui._history.create_session()
+    seen = []
+    monkeypatch.setattr(ui.avatar, "set_emotion", seen.append)
+    ev = Event("assistant_emotion", ui._sid, "t1", {"emotion": "happy"})
+    ui._on_event(ev)
+    assert seen == ["happy"]
+    ui.close()
+
+
+def test_avatar_unknown_emotion_payload_falls_back(tmp_path, monkeypatch):
+    from core.events import Event
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui._sid = ui._history.create_session()
+    seen = []
+    monkeypatch.setattr(ui.avatar, "set_emotion", seen.append)
+    ev = Event("assistant_emotion", ui._sid, "t1", {})
+    ui._on_event(ev)
+    assert seen == ["neutral"]
+    ui.close()
+
+
+def test_avatar_cancelled_resets_emotion(tmp_path, monkeypatch):
+    from core.events import Event
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui._sid = ui._history.create_session()
+    seen = []
+    monkeypatch.setattr(ui.avatar, "set_emotion", seen.append)
+    ev = Event("agent_cancelled", ui._sid, "t1", {"reason": "cancelled"})
+    ui._on_event(ev)
+    assert "neutral" in seen
+    ui.close()
+
+
+def test_avatar_error_resets_emotion(tmp_path, monkeypatch):
+    from core.events import Event
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui._sid = ui._history.create_session()
+    seen = []
+    monkeypatch.setattr(ui.avatar, "set_emotion", seen.append)
+    ev = Event("agent_error", ui._sid, "t1", {"error_code": "boom", "message": "x"})
+    ui._on_event(ev)
+    assert "neutral" in seen
+    ui.close()

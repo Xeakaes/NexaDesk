@@ -179,13 +179,17 @@ def test_runtime_keeps_only_last_image():
     provider = FakeProvider([
         ProviderResponse(text=None, tool_calls=[ToolCall(id=f"c{i}", name="screenshot", arguments={})])
         for i in range(4)
-    ] + [ProviderResponse(text="done", tool_calls=[])])
+    ] + [
+        ProviderResponse(text="done", tool_calls=[]),
+        ProviderResponse(text="neutral", tool_calls=[]),  # F1 classifier call
+    ])
     provider.supports_vision = True
     rt = _screenshot_runtime(provider, tool)
     rt.start_task("s1", "ekran gor")
 
     # On the final model call only the latest image is attached.
-    final = provider.calls[-1].messages
+    # (calls[-1] is the F1 emotion classifier; the reply is calls[-2].)
+    final = provider.calls[-2].messages
     attached = [m.images for m in final if m.images]
     assert attached == [["data:image/jpeg;base64,S3"]]
 

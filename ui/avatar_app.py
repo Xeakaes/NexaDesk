@@ -289,10 +289,14 @@ class App:
             if text:
                 self.bubble.append_message("assistant", text)
                 self._history.append(self._sid, "assistant", text)
+        elif event.name == "assistant_emotion":
+            # F1: classified reply emotion → avatar axis (unknown → neutral).
+            self.avatar.set_emotion(event.payload.get("emotion", "neutral"))
         elif event.name == "agent_finished":
             self._on_finished("")
         elif event.name == "agent_error":
             self._on_finished("")
+            self.avatar.set_emotion("neutral")
             msg = event.payload.get("message") or event.payload.get("error_code", "")
             code = event.payload.get("error_code", "")
             if code == "rate_limited":
@@ -304,6 +308,7 @@ class App:
             self._history.append(self._sid, "assistant", line)
         elif event.name == "agent_cancelled":
             self._on_finished("")
+            self.avatar.set_emotion("neutral")
             line = i18n.t("chat.cancelled")
             self.bubble.append_message("assistant", line)
             self._history.append(self._sid, "assistant", line)

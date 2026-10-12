@@ -14,6 +14,7 @@ from core.agent.telemetry import log_event
 EVENT_NAMES = (
     "agent_started",
     "assistant_message",
+    "assistant_emotion",
     "tool_started",
     "tool_finished",
     "confirmation_requested",

@@ -55,14 +55,20 @@ def test_seed_session_does_not_clobber_live_session():
     # A session the runtime already knows (same app run) keeps its richer
     # in-memory transcript — including tool_calls — and is not overwritten
     # by the flatter history-derived pairs.
+    # F1: each final reply adds a classifier call between the two tasks.
     provider = FakeProvider(
-        [ProviderResponse(text="a", tool_calls=[]), ProviderResponse(text="b", tool_calls=[])]
+        [
+            ProviderResponse(text="a", tool_calls=[]),
+            ProviderResponse(text="neutral", tool_calls=[]),
+            ProviderResponse(text="b", tool_calls=[]),
+            ProviderResponse(text="neutral", tool_calls=[]),
+        ]
     )
     rt, _ = _runtime(provider)
     rt.start_task("s1", "ilk mesaj")
     rt.seed_session("s1", [("user", "eski flat")])
     rt.start_task("s1", "ikinci mesaj")
-    sent = provider.calls[1].messages
+    sent = provider.calls[2].messages
     contents = [m.content for m in sent if m.role == "user"]
     assert "ilk mesaj" in contents  # live transcript preserved
     assert "eski flat" not in contents
@@ -73,13 +79,14 @@ def test_tool_call_result_fed_back_then_final():
     provider = FakeProvider([
         ProviderResponse(text=None, tool_calls=[ToolCall(id="c1", name="echo", arguments={"x": 1})]),
         ProviderResponse(text="Cevap: 1", tool_calls=[]),
+        ProviderResponse(text="neutral", tool_calls=[]),  # F1 classifier call
     ])
     rt, events = _runtime(provider, tool)
     finished = []
     events.subscribe("agent_finished", finished.append)
     rt.start_task("s1", "echola")
     assert tool.calls == [{"x": 1}]
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
     second = provider.calls[1].messages
     assert second[-2].role == "assistant" and second[-2].tool_calls is not None
     assert second[-2].tool_calls[0].id == "c1" and second[-2].tool_calls[0].name == "echo"

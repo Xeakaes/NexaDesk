@@ -127,11 +127,12 @@ def test_invalid_arguments_fed_back_then_final():
     provider = FakeProvider([
         ProviderResponse(text=None, tool_calls=[ToolCall(id="c1", name="echo", arguments={"x": "?"})]),
         ProviderResponse(text="Anlaşıldım.", tool_calls=[]),
+        ProviderResponse(text="neutral", tool_calls=[]),  # F1 classifier call
     ])
     rt, _ = _runtime(provider, tool)
     rt.start_task("s1", "echo")
     assert tool.calls == [{"x": "?"}]
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
     assert "invalid_arguments" in provider.calls[1].messages[-1].content
 
 

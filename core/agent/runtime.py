@@ -22,6 +22,7 @@ from concurrent.futures import TimeoutError as FuturesTimeout
 
 from core.agent.cancellation import CancellationToken, TaskCancelled
 from core.agent.config import AgentConfig
+from core.agent.emotion import classify_emotion
 from core.agent.telemetry import log_event
 from core.events import EventBus
 from core.providers.base import ChatMessage, ModelProvider, ProviderError
@@ -251,6 +252,12 @@ class AgentRuntime:
                     text = response.text or ""
                     self._session.add_message(sid, "assistant", text)
                     self._events.publish("assistant_message", sid, tid, {"text": text})
+                    # F1: classify the reply for the avatar emotion axis;
+                    # classify_emotion never raises and falls back to neutral.
+                    emotion = classify_emotion(self._provider, text, task.token)
+                    self._events.publish(
+                        "assistant_emotion", sid, tid, {"emotion": emotion}
+                    )
                     self._events.publish("agent_finished", sid, tid, {"final_text": text})
                     return
                 self._session.add_message(

@@ -37,17 +37,21 @@ def test_empty_persona_sends_no_system_message():
 
 
 def test_set_persona_applies_to_next_task_without_restart():
+    # F1: each final reply is followed by one classifier call (scripted here
+    # as "neutral"), so two tasks consume four provider responses.
     provider = FakeProvider([
         ProviderResponse(text="ok", tool_calls=[]),
+        ProviderResponse(text="neutral", tool_calls=[]),
         ProviderResponse(text="ok", tool_calls=[]),
+        ProviderResponse(text="neutral", tool_calls=[]),
     ])
     rt = _runtime(provider)
     rt.start_task("s1", "bir")
     assert provider.calls[0].messages[0].role == "user"
     rt.set_persona("Her cevabın sonuna yıldız koy.")
     rt.start_task("s2", "iki")
-    assert provider.calls[1].messages[0].role == "system"
-    assert provider.calls[1].messages[0].content == "Her cevabın sonuna yıldız koy."
+    assert provider.calls[2].messages[0].role == "system"
+    assert provider.calls[2].messages[0].content == "Her cevabın sonuna yıldız koy."
 
 
 def test_persona_present_on_followup_model_calls_in_same_task():
