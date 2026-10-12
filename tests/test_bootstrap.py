@@ -111,3 +111,62 @@ def test_client_factory_falls_back_to_secrets_without_token_file(tmp_path, monke
     factory = bs.default_client_factory({}, {"screen_control_api_key": "FROM_SECRETS"})
     factory()
     assert recorded["api_key"] == "FROM_SECRETS"
+
+
+def test_apply_screen_control_settings_rebuilds_live_client(tmp_path, monkeypatch):
+    # B29: after the user saves Settings, tool calls must use the new
+    # host/port/key — not the config captured when the runtime was built.
+    import core.bootstrap as bs
+    import vendor.sc_server.sdk as sdk
+    from core.agent.cancellation import CancellationToken
+    from core.tools.registry import ToolRegistry
+
+    monkeypatch.setattr(bs, "config_dir", lambda: tmp_path)  # no live .token
+    recorded = []
+
+    class FakeSC:
+        def __init__(self, host=None, port=None, api_key=None):
+            recorded.append({"host": host, "port": port, "api_key": api_key})
+
+        def windows(self):
+            return []
+
+    monkeypatch.setattr(sdk, "ScreenControl", FakeSC)
+
+    reg = ToolRegistry()
+    bs.apply_screen_control_settings(
+        reg,
+        {"screen_control": {"enabled": True, "host": "127.0.0.1", "port": 8745}},
+        {"screen_control_api_key": "K1"},
+    )
+    reg.get("list_windows").execute({}, CancellationToken())
+    assert recorded[-1] == {"host": "127.0.0.1", "port": 8745, "api_key": "K1"}
+
+    # The same registry after the user saves new values.
+    bs.apply_screen_control_settings(
+        reg,
+        {"screen_control": {"enabled": True, "host": "192.168.1.5", "port": 9000}},
+        {"screen_control_api_key": "K2"},
+    )
+    reg.get("list_windows").execute({}, CancellationToken())
+    assert recorded[-1] == {"host": "192.168.1.5", "port": 9000, "api_key": "K2"}
+
+
+def test_apply_screen_control_settings_toggles_enabled(tmp_path, monkeypatch):
+    # Enabled at save-time must register the tools even if the app started
+    # with them off; disabling must take them away again.
+    import core.bootstrap as bs
+
+    monkeypatch.setattr(bs, "config_dir", lambda: tmp_path)
+    from core.tools.registry import ToolRegistry
+
+    reg = ToolRegistry()
+    on = {"screen_control": {"enabled": True, "host": "127.0.0.1", "port": 8745}}
+    off = {"screen_control": {"enabled": False, "host": "127.0.0.1", "port": 8745}}
+
+    bs.apply_screen_control_settings(reg, on, {})
+    assert reg.get("screenshot") is not None
+    bs.apply_screen_control_settings(reg, off, {})
+    assert reg.get("screenshot") is None
+    bs.apply_screen_control_settings(reg, on, {})
+    assert reg.get("screenshot") is not None

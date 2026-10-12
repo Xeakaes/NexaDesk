@@ -544,3 +544,39 @@ def test_cancelled_after_switch_persists_to_task_session(tmp_path):
     assert win._busy is False
     assert any("iptal" in m[1].lower() for m in win._history.messages(sid_a))
     win.hide()
+
+
+def test_on_settings_saved_applies_screen_control(tmp_path):
+    # B29: saving Settings must rebuild screen_control tools on the live
+    # runtime — the registry starts empty here (disabled at startup).
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from core.agent.config import AgentConfig
+    from core.agent.runtime import AgentRuntime
+    from core.events import EventBus
+    from core.session.store import SessionStore
+    from core.tools.registry import PermissionPolicy, ToolRegistry
+    from tests.fakes import FakeProvider
+    from ui.gui.main_window import ChatWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({
+        "screen_control": {"enabled": True, "host": "127.0.0.1", "port": 8745},
+        "agent": {"persona": "x"},
+    }))
+    secrets = tmp_path / "secrets.json"
+    secrets.write_text(json.dumps({}))
+    rt = AgentRuntime(
+        FakeProvider([]), ToolRegistry(), PermissionPolicy({"*": "allow"}),
+        EventBus(), SessionStore(), AgentConfig(),
+    )
+    win = ChatWindow(
+        runtime=rt, history=HistoryStore(tmp_path / "h.db"),
+        settings_path=settings, secrets_path=secrets,
+    )
+    win._on_settings_saved()
+    assert rt.registry.get("screenshot") is not None
+    win.hide()

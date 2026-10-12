@@ -20,6 +20,7 @@ from core.providers.base import (
     ProviderError,
     ProviderResponse,
 )
+from core.bootstrap import apply_screen_control_settings
 
 
 class UnconfiguredProvider(ModelProvider):
@@ -58,3 +59,14 @@ def reload_provider(runtime, settings_path: Path, secrets_path: Path) -> bool:
         return False
     runtime.set_provider(provider)
     return True
+
+
+def apply_screen_control(runtime, settings_path: Path, secrets_path: Path) -> None:
+    """Re-register screen-control tools from freshly saved settings (B29).
+
+    Mirrors :func:`reload_provider`: paths in, live registry updated — the
+    user's new host/port/key (or enable/disable) applies without a restart.
+    """
+    settings = load_settings(settings_path)
+    secrets = load_secrets(secrets_path) if secrets_path.exists() else {}
+    apply_screen_control_settings(runtime.registry, settings, secrets)

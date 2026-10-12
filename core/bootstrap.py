@@ -14,7 +14,7 @@ from core.providers import create_provider
 from core.providers.base import ModelProvider
 from core.session.store import SessionStore
 from core.tools.registry import PermissionPolicy, ToolRegistry
-from core.tools.screen_control import register_screen_control
+from core.tools.screen_control import SCREEN_CONTROL_TOOL_NAMES, register_screen_control
 
 DEFAULT_SETTINGS = config_dir() / "settings.json"
 DEFAULT_SECRETS = config_dir() / "secrets.json"
@@ -56,6 +56,23 @@ def default_client_factory(settings: dict, secrets: dict) -> Callable[[], Any]:
         )
 
     return factory
+
+
+def apply_screen_control_settings(
+    registry: ToolRegistry, settings: dict, secrets: dict
+) -> None:
+    """Re-register screen-control tools from freshly saved settings (B29).
+
+    The factory captured at ``build_runtime`` time pinned the startup host,
+    port, and API key; after the user saves Settings the live registry must
+    follow the new config — including enabled/disabled — without an app
+    restart.
+    """
+    for name in SCREEN_CONTROL_TOOL_NAMES:
+        registry.unregister(name)
+    sc_cfg = settings.get("screen_control") or {}
+    if sc_cfg.get("enabled", False):
+        register_screen_control(registry, default_client_factory(settings, secrets))
 
 
 def build_runtime(

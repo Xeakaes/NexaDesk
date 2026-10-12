@@ -156,6 +156,18 @@ class _FocusWindowTool(_ScreenControlTool):
         return self._run(arguments, cancel, run)
 
 
+# Every tool this module registers; used to unregister them when Settings
+# are re-applied (B29).
+SCREEN_CONTROL_TOOL_NAMES = (
+    "screenshot",
+    "ocr_screen",
+    "mouse",
+    "keyboard",
+    "list_windows",
+    "focus_window",
+)
+
+
 def register_screen_control(
     registry: ToolRegistry,
     client_factory: Callable[[], Any],

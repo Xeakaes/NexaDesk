@@ -27,3 +27,10 @@ def test_register_duplicate_raises():
 def test_schemas_shape():
     r = ToolRegistry(); r.register(Dummy())
     assert r.schemas() == [{"name": "dummy", "description": "d", "input_schema": {"type": "object"}}]
+
+def test_unregister_removes_tool():
+    r = ToolRegistry(); r.register(Dummy())
+    r.unregister("dummy")
+    assert r.get("dummy") is None
+    r.unregister("dummy")  # idempotent: save-time toggles unregister first
+    assert r.names() == []

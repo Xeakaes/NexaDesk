@@ -31,7 +31,12 @@ from ui.i18n import i18n
 from ui.paths import SECRETS_PATH, SETTINGS_PATH, ui_json_path
 from ui.prefs import load_avatar_pos, load_prefs, restart_into, save_avatar_pos
 from ui.settings import SettingsWindow
-from ui.setup import UnconfiguredProvider, is_missing_key_error, reload_provider
+from ui.setup import (
+    UnconfiguredProvider,
+    apply_screen_control,
+    is_missing_key_error,
+    reload_provider,
+)
 from ui.theme import apply_theme
 
 from core.paths import assets_dir
@@ -131,6 +136,9 @@ class App:
             self.settings_win.raise_()
 
     def _on_settings_saved(self) -> None:
+        # B29: screen_control changes must reach the live tools on every
+        # save — independent of the first-run provider setup flow.
+        apply_screen_control(self.runtime, self.settings_path, self.secrets_path)
         if not self._needs_provider_setup:
             return
         if reload_provider(self.runtime, self.settings_path, self.secrets_path):

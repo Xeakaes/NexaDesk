@@ -135,6 +135,19 @@ def test_avatar_app_settings_saved_swaps_provider(tmp_path, monkeypatch):
     ui.close()
 
 
+def test_avatar_app_settings_saved_applies_screen_control(tmp_path, monkeypatch):
+    # B29: enabling screen_control in Settings must reach the live runtime's
+    # tool registry without an app restart (the template ships it disabled).
+    app, ui, settings, _secrets = _make_avatar_app(tmp_path, monkeypatch)
+    assert ui.runtime.registry.get("screenshot") is None
+    cfg = json.loads(settings.read_text())
+    cfg["screen_control"] = {"enabled": True, "host": "127.0.0.1", "port": 8745}
+    settings.write_text(json.dumps(cfg))
+    ui._on_settings_saved()
+    assert ui.runtime.registry.get("screenshot") is not None
+    ui.close()
+
+
 def test_guide_dialog_opens_provider_settings(tmp_path, monkeypatch):
     app, ui, _settings, _secrets = _make_avatar_app(tmp_path, monkeypatch)
 

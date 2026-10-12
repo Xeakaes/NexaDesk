@@ -418,6 +418,11 @@ class ChatWindow(QMainWindow):
         except Exception:
             return
         self._runtime.set_persona(str((settings.get("agent") or {}).get("persona", "")))
+        # B29: rebuild screen-control tools so a saved host/port/key change
+        # reaches the live registry without an app restart.
+        from ui.setup import apply_screen_control
+
+        apply_screen_control(self._runtime, self._settings_path, self._secrets_path)
 
     # --- sessions ---
 
