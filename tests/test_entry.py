@@ -222,6 +222,73 @@ def test_server_healthy_false_on_dead_socket(monkeypatch):
     assert entry._server_healthy("127.0.0.1", 8745) is False
 
 
+def test_server_healthy_falls_back_to_secrets_api_key(tmp_path, monkeypatch):
+    # B15: the probe must send the same credential the tool client resolves
+    # (live .token file first, then the persisted screen_control_api_key -
+    # see core.bootstrap.default_client_factory). Without the fallback a
+    # server that authenticates via the persisted key while .token is
+    # missing gets judged dead, so we kill and respawn a usable server.
+    import json
+    import urllib.error
+
+    monkeypatch.setattr(entry, "config_dir", lambda: tmp_path)
+    (tmp_path / "secrets.json").write_text(
+        json.dumps({"screen_control_api_key": "KEY123"})
+    )
+
+    def fake_urlopen(req, *args, **kwargs):
+        if req.get_header("X-auth-token") != "KEY123":
+            raise urllib.error.HTTPError("http://x", 401, "no", None, None)
+
+        class R:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        return R()
+
+    monkeypatch.setattr(entry.urllib.request, "urlopen", fake_urlopen)
+    assert entry._server_healthy("127.0.0.1", 8745) is True
+
+
+def test_server_healthy_prefers_live_token_over_secrets_key(tmp_path, monkeypatch):
+    # Mirror of test_client_factory_prefers_live_token_over_stale_secrets:
+    # a stale cached key must never override the live .token file.
+    import json
+    import urllib.error
+
+    monkeypatch.setattr(entry, "config_dir", lambda: tmp_path)
+    (tmp_path / ".token").write_text("LIVE_TOKEN")
+    (tmp_path / "secrets.json").write_text(
+        json.dumps({"screen_control_api_key": "STALE_KEY"})
+    )
+    sent = {}
+
+    def fake_urlopen(req, *args, **kwargs):
+        sent["token"] = req.get_header("X-auth-token")
+        if sent["token"] != "LIVE_TOKEN":
+            raise urllib.error.HTTPError("http://x", 401, "no", None, None)
+
+        class R:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        return R()
+
+    monkeypatch.setattr(entry.urllib.request, "urlopen", fake_urlopen)
+    assert entry._server_healthy("127.0.0.1", 8745) is True
+    assert sent["token"] == "LIVE_TOKEN"
+
+
 def test_kill_stale_server_kills_port_owner(monkeypatch):
     # A leftover dev server (`python -m vendor.sc_server.server`) holding the
     # port is ours: the cmdline identity check must recognize it and kill it.

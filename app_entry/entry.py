@@ -19,6 +19,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+from core.config import ConfigError, load_secrets
 from core.paths import bundle_root, config_dir, is_frozen, repo_root
 
 
@@ -55,13 +56,29 @@ def _port_open(host: str, port: int) -> bool:
 
 
 def _screen_control_token() -> str | None:
+    """Resolve the credential the tool client will actually use.
+
+    Same resolution order as core.bootstrap.default_client_factory: the live
+    session token file first, then the persisted ``screen_control_api_key``
+    in secrets. Probing with anything else 401s a server the tools can
+    legitimately use, so the health check would kill and respawn a healthy
+    server forever.
+    """
+    token_file = config_dir() / ".token"
     try:
-        p = config_dir() / ".token"
-        if p.exists():
-            return p.read_text(encoding="utf-8").strip() or None
+        if token_file.exists():
+            token = token_file.read_text(encoding="utf-8").strip()
+            if token:
+                return token
     except OSError:
         pass
-    return None
+    try:
+        key = load_secrets(config_dir() / "secrets.json").get(
+            "screen_control_api_key"
+        )
+    except ConfigError:
+        return None
+    return key.strip() if isinstance(key, str) and key.strip() else None
 
 
 def _server_healthy(host: str, port: int) -> bool:
