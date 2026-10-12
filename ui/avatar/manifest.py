@@ -52,7 +52,10 @@ def _parse_states(states: dict, base: Path) -> dict[str, StateAnim]:
         if fps <= 0:
             raise ManifestError(f"state {name}: fps must be > 0")
         out[name] = StateAnim(
-            frames=tuple(str(base / f) for f in frames),
+            # as_posix(): keep frame paths separator-independent so tests and
+            # pack tooling can compare them portably (Windows uses "\"; the
+            # renderer and Path both accept "/").
+            frames=tuple((base / f).as_posix() for f in frames),
             fps=fps,
             loop=bool(raw.get("loop", True)),
         )

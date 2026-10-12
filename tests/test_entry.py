@@ -3,6 +3,8 @@ import socket
 import sys
 from pathlib import Path
 
+import pytest
+
 from app_entry import entry
 
 
@@ -50,7 +52,11 @@ def test_serve_sets_data_dir_env(monkeypatch, tmp_path):
 
     monkeypatch.setattr(sm, "main", fake_server_main)
     entry.serve_screen_control(["--serve-screen-control"])
-    assert captured["env"] == str(tmp_path / ".config" / "NexaDesk")
+    if os.name == "nt":
+        expected = str(tmp_path / "appdata" / "NexaDesk")
+    else:
+        expected = str(tmp_path / ".config" / "NexaDesk")
+    assert captured["env"] == expected
 
 
 def test_spawn_disabled_settings(monkeypatch):
@@ -297,14 +303,19 @@ def test_kill_stale_server_kills_port_owner(monkeypatch):
     import signal
     import types
 
-    ss_out = (
-        'LISTEN 0 128 127.0.0.1:8745 0.0.0.0:* '
-        'users:(("python3",pid=4242,fd=3))\n'
-    )
+    if os.name == "nt":
+        out = (
+            "  TCP    127.0.0.1:8745         0.0.0.0:0              LISTENING       4242\n"
+        )
+    else:
+        out = (
+            'LISTEN 0 128 127.0.0.1:8745 0.0.0.0:* '
+            'users:(("python3",pid=4242,fd=3))\n'
+        )
     monkeypatch.setattr(
         entry.subprocess,
         "run",
-        lambda *a, **k: types.SimpleNamespace(stdout=ss_out, returncode=0),
+        lambda *a, **k: types.SimpleNamespace(stdout=out, returncode=0),
     )
     monkeypatch.setattr(
         entry,
@@ -319,6 +330,7 @@ def test_kill_stale_server_kills_port_owner(monkeypatch):
     assert killed == [(4242, signal.SIGTERM)]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="mocks the Linux ss output; the Windows netstat path has its own test below")
 def test_kill_stale_server_falls_back_to_pattern(monkeypatch):
     import signal
     import types
@@ -346,6 +358,7 @@ def test_kill_stale_server_falls_back_to_pattern(monkeypatch):
     assert [c[0] for c in calls] == ["ss", "pgrep"]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="mocks the Linux ss output; the Windows netstat path has its own test below")
 def test_kill_stale_server_refuses_foreign_port_owner(monkeypatch):
     # An unrelated app (e.g. nginx) on the port must never be killed; the
     # function reports the conflict instead.
@@ -368,6 +381,7 @@ def test_kill_stale_server_refuses_foreign_port_owner(monkeypatch):
     assert killed == []
 
 
+@pytest.mark.skipif(os.name == "nt", reason="mocks the Linux ss output; the Windows netstat path has its own test below")
 def test_kill_stale_server_kills_only_our_pids(monkeypatch):
     import signal
     import types

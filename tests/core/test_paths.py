@@ -195,6 +195,7 @@ def test_migrate_legacy_dirs_does_not_overwrite(monkeypatch, tmp_path):
     assert (new_data / "history.db").read_bytes() == b"new"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="XDG is a Linux/Unix convention; Windows uses APPDATA")
 def test_config_dir_frozen_honors_xdg_config_home(monkeypatch, tmp_path):
     # B55: frozen Linux builds must respect XDG_CONFIG_HOME.
     monkeypatch.setattr(sys, "frozen", True, raising=False)
@@ -203,6 +204,7 @@ def test_config_dir_frozen_honors_xdg_config_home(monkeypatch, tmp_path):
     assert paths.config_dir() == tmp_path / "xdgcfg" / "NexaDesk"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="XDG is a Linux/Unix convention; Windows uses APPDATA")
 def test_data_dir_honors_xdg_data_home(monkeypatch, tmp_path):
     # B55: frozen Linux builds must respect XDG_DATA_HOME.
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdgdata"))

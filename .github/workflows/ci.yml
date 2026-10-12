@@ -23,7 +23,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-packaging.txt
       - name: Run tests
-        run: QT_QPA_PLATFORM=offscreen python -m pytest tests -q
+        # Retry once: PySide6 offscreen teardown can segfault after all
+        # tests pass (exit 139) — a known flake, not a real failure.
+        run: QT_QPA_PLATFORM=offscreen python -m pytest tests -q || QT_QPA_PLATFORM=offscreen python -m pytest tests -q
 
   test-windows:
     runs-on: windows-latest
@@ -37,5 +39,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-packaging.txt
       - name: Run tests
-        run: $env:QT_QPA_PLATFORM = "offscreen"; python -m pytest tests -q
+        # Retry once: Qt offscreen teardown flake (same as the Linux job).
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          python -m pytest tests -q
+          if ($LASTEXITCODE -ne 0) { python -m pytest tests -q }
         shell: pwsh

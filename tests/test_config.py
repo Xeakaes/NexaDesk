@@ -13,6 +13,7 @@ def test_load_secrets_reads_json(tmp_path):
     os.chmod(p, 0o600)
     assert load_secrets(p)["screen_control_api_key"] == "k"
 
+@pytest.mark.skipif(os.name == "nt", reason="no POSIX mode bits on Windows; ensure_secrets_mode is a no-op there")
 def test_ensure_secrets_mode_rejects_world_readable(tmp_path):
     p = tmp_path / "secrets.json"
     p.write_text("{}")
@@ -54,6 +55,7 @@ def test_save_settings_preserves_other_keys(tmp_path):
     assert data2["provider"]["type"] == "groq"
     assert data2["avatar"] == "teto"
 
+@pytest.mark.skipif(os.name == "nt", reason="no POSIX mode bits on Windows; ensure_secrets_mode is a no-op there")
 def test_ensure_secrets_mode_error_suggests_chmod_with_full_path(tmp_path):
     # B59: the dialog must give the actionable fix with the real path —
     # "fix the file" alone leads users to delete their API keys.
