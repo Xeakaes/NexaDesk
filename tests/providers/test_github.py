@@ -103,12 +103,40 @@ def test_expired_token_is_reexchanged():
     assert session.chat_calls[1]["headers"]["Authorization"] == "Bearer tok-new"
 
 
-def test_token_exchange_failure_raises_missing_api_key():
+def test_token_exchange_403_maps_unauthorized():
+    # B17: a rejected PAT is a credential problem, not a missing key - the
+    # setup flow (missing_api_key) must not open for it.
     session = FakeSession(FakeResponse({}, status_code=403), [_chat_ok()])
     p = _provider(session)
     with pytest.raises(ProviderError) as ei:
         p.complete(_msgs(), [], CancellationToken())
-    assert ei.value.error_code == "missing_api_key"
+    assert ei.value.error_code == "unauthorized"
+
+
+def test_token_exchange_401_maps_unauthorized():
+    session = FakeSession(FakeResponse({}, status_code=401), [_chat_ok()])
+    p = _provider(session)
+    with pytest.raises(ProviderError) as ei:
+        p.complete(_msgs(), [], CancellationToken())
+    assert ei.value.error_code == "unauthorized"
+
+
+def test_token_exchange_429_maps_provider_error():
+    # B17: rate limits and server errors are transient - mapping them to
+    # missing_api_key told users to re-enter a key that is fine.
+    session = FakeSession(FakeResponse({}, status_code=429), [_chat_ok()])
+    p = _provider(session)
+    with pytest.raises(ProviderError) as ei:
+        p.complete(_msgs(), [], CancellationToken())
+    assert ei.value.error_code == "provider_error"
+
+
+def test_token_exchange_500_maps_provider_error():
+    session = FakeSession(FakeResponse({}, status_code=500), [_chat_ok()])
+    p = _provider(session)
+    with pytest.raises(ProviderError) as ei:
+        p.complete(_msgs(), [], CancellationToken())
+    assert ei.value.error_code == "provider_error"
 
 
 def test_list_models_parses_catalog():

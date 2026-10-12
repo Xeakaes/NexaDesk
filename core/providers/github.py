@@ -68,11 +68,17 @@ class GitHubCopilotProvider(OpenAICompatibleProvider):
                 "github copilot token exchange failed (network)",
                 error_code="provider_error",
             ) from exc
+        if resp.status_code in (401, 403):
+            raise ProviderError(
+                "github copilot token exchange was rejected — check the PAT "
+                "and that the account has Copilot access",
+                error_code="unauthorized",
+            )
         if resp.status_code != 200:
             raise ProviderError(
-                "github copilot token exchange failed — check the PAT and "
-                "that the account has Copilot access",
-                error_code="missing_api_key",
+                f"github copilot token exchange failed (HTTP "
+                f"{resp.status_code})",
+                error_code="provider_error",
             )
         try:
             data = resp.json()
