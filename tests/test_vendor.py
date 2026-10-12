@@ -87,6 +87,11 @@ def _load_fake_server(tmp_path, monkeypatch):
     pytest.importorskip("flask")
     monkeypatch.setenv("SCREEN_CONTROL_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("SCREEN_CONTROL_BACKEND", "fake")
+    # get_backend() caches a process-wide singleton — an earlier test may
+    # have created the REAL platform backend; reset so the env is honored.
+    import vendor.sc_server.sc_core.backends as backends_mod
+
+    monkeypatch.setattr(backends_mod, "_backend_singleton", None)
     for name in [m for m in list(sys.modules)
                  if m.startswith("vendor.sc_server.server")]:
         del sys.modules[name]
@@ -156,3 +161,42 @@ def test_shutdown_releases_held_keys(tmp_path, monkeypatch):
     except KeyboardInterrupt:
         pass
     assert fake.held_state()["keys"] == []
+
+
+def test_monitor_for_point_picks_containing_monitor():
+    from vendor.sc_server.sc_core.backends import monitor_for_point
+
+    monitors = [
+        {"id": 1, "left": 0, "top": 0, "width": 1920, "height": 1080,
+         "is_primary": True},
+        {"id": 2, "left": 1920, "top": 0, "width": 2560, "height": 1440},
+    ]
+    assert monitor_for_point(monitors, 100, 100) == 1
+    assert monitor_for_point(monitors, 2000, 10) == 2
+    # Outside every rect → primary fallback.
+    assert monitor_for_point(monitors, -50, -50) == 1
+
+
+def test_screenshot_resolves_monitor_for_window(tmp_path, monkeypatch):
+    # B26: ?hwnd= targets the monitor that contains the window, not always 1.
+    mod = _load_fake_server(tmp_path, monkeypatch)
+    fake = mod._b()
+    monkeypatch.setattr(fake, "monitor_for_window", lambda hwnd: 2)
+    client = mod.app.test_client()
+    resp = client.get("/api/screenshot?hwnd=5", headers={"X-Auth-Token": "t"})
+    assert resp.status_code == 200
+    shots = [c for c in fake.calls if c[0] == "screenshot_jpeg"]
+    assert shots and shots[-1][1][0] == 2
+
+
+def test_ocr_resolves_monitor_for_window(tmp_path, monkeypatch):
+    mod = _load_fake_server(tmp_path, monkeypatch)
+    fake = mod._b()
+    monkeypatch.setattr(fake, "monitor_for_window", lambda hwnd: 2)
+    client = mod.app.test_client()
+    # Engine may be absent (503) — the capture call is what we assert.
+    client.post("/api/ocr", json={"hwnd": 5}, headers={"X-Auth-Token": "t"})
+    shots = [c for c in fake.calls if c[0] == "screenshot"]
+    assert shots, "ocr must capture through the resolved monitor"
+    last = shots[-1]
+    assert last[1][0] == 2 or last[2].get("monitor") == 2

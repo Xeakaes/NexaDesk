@@ -151,14 +151,25 @@ class App:
             self.bubble.append_message("tool", i18n.t("setup.provider_ready"))
 
     def _initial_avatar_pos(self, screen) -> tuple[int, int]:
-        """Saved position if still on-screen, else the bottom-right default."""
+        """Saved position, clamped to the monitor it belongs to (B26).
+
+        ``screen`` is the primary screen's geometry (legacy fallback); a
+        position saved on a secondary monitor stays on that monitor.
+        """
         saved = load_avatar_pos(self._prefs_path)
         w = self.avatar.width() or 220
         h = self.avatar.height() or 260
         if saved is not None:
             x, y = saved
-            if 0 <= x <= screen.width() - w and 0 <= y <= screen.height() - h:
-                return x, y
+            target = screen
+            for s in QApplication.screens() or []:
+                geo = s.geometry()
+                if geo.contains(x, y):
+                    target = geo
+                    break
+            x = max(target.x(), min(x, target.x() + target.width() - w))
+            y = max(target.y(), min(y, target.y() + target.height() - h))
+            return x, y
         return screen.width() - 220, screen.height() - 260
 
     def _on_avatar_dragging(self, dragging: bool) -> None:

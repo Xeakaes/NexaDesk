@@ -22,7 +22,7 @@ from PIL import Image
 from vendor.sc_server.sc_backends import imageops
 from vendor.sc_server.sc_backends.forbidden import assert_forbidden
 from vendor.sc_server.sc_backends.uinput import UInputDevice
-from vendor.sc_server.sc_core.backends import PlatformBackend
+from vendor.sc_server.sc_core.backends import PlatformBackend, monitor_for_point
 from vendor.sc_server.sc_core.errors import ApiError
 
 _PLATFORM = "linux"
@@ -642,6 +642,15 @@ class LinuxBackend(PlatformBackend):
                     "is_primary": i == 1,
                 })
         return monitors
+
+    def monitor_for_window(self, hwnd: int) -> int:
+        """Monitor containing the window centre; primary fallback (B26)."""
+        info = _window_info(hwnd)
+        if not info:
+            return 1
+        x1, y1, x2, y2 = info["rect"]
+        return monitor_for_point(self.list_monitors(),
+                                 (x1 + x2) // 2, (y1 + y2) // 2)
 
     def screenshot(self, monitor: int = 1, region=None):
         """Capture a monitor or an (x, y, w, h) region as an RGB Image."""

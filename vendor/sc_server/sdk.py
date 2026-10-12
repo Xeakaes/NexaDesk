@@ -137,21 +137,29 @@ class ScreenControl:
     def screenshot(
         self,
         output: Optional[str] = None,
-        monitor: int = 1,
+        monitor: Optional[int] = None,
         region: Optional[tuple[int, int, int, int]] = None,
+        hwnd: Optional[int] = None,
     ) -> bytes:
         """
         Take a screenshot.
         
         Args:
             output: Save to file path (optional)
-            monitor: Monitor index (default: 1)
+            monitor: Monitor index (None = default 1, or the hwnd's monitor)
             region: Region tuple (x, y, w, h)
+            hwnd: Resolve the capture monitor from this window (B26)
             
         Returns:
             JPEG image bytes
         """
-        params = {"monitor": monitor}
+        params = {}
+        if monitor is not None:
+            params["monitor"] = monitor
+        elif hwnd is None:
+            params["monitor"] = 1  # legacy default
+        if hwnd is not None:
+            params["hwnd"] = hwnd
         if region:
             params["region"] = f"{region[0]},{region[1]},{region[2]},{region[3]}"
         
@@ -260,12 +268,15 @@ class ScreenControl:
     
     # --- OCR ---
     
-    def ocr(self, region: Optional[tuple[int, int, int, int]] = None) -> dict:
+    def ocr(self, region: Optional[tuple[int, int, int, int]] = None,
+            monitor: Optional[int] = None, hwnd: Optional[int] = None) -> dict:
         """
         Perform OCR on screen.
         
         Args:
             region: Region tuple (x, y, w, h) for faster processing
+            monitor: Monitor index (None = default 1, or the hwnd's monitor)
+            hwnd: Resolve the capture monitor from this window (B26)
             
         Returns:
             Dict with 'text', 'lines', and 'items' (with coordinates)
@@ -273,6 +284,10 @@ class ScreenControl:
         body = {}
         if region:
             body["region"] = list(region)
+        if monitor is not None:
+            body["monitor"] = monitor
+        if hwnd is not None:
+            body["hwnd"] = hwnd
         return self._request("POST", "/api/ocr", json=body)
     
     # --- Window Management ---

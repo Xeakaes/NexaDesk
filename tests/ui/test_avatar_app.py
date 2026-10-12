@@ -190,3 +190,48 @@ def test_context_menu_keeps_strong_ref(tmp_path, monkeypatch):
     gc.collect()
     assert ref() is not None, "App must keep the context menu alive"
     assert ui._ctx_menu is ref()
+
+
+def test_avatar_pos_clamps_to_secondary_screen(tmp_path, monkeypatch):
+    # B26: a position saved on a secondary monitor must stay on that
+    # monitor instead of being treated as off-screen and reset to primary.
+    from PySide6.QtGui import QGuiApplication
+
+    import ui.avatar_app as aa
+
+    class Geo:
+        def __init__(self, x, y, w, h):
+            self._x, self._y, self._w, self._h = x, y, w, h
+
+        def x(self):
+            return self._x
+
+        def y(self):
+            return self._y
+
+        def width(self):
+            return self._w
+
+        def height(self):
+            return self._h
+
+        def contains(self, px, py):
+            return (self._x <= px < self._x + self._w
+                    and self._y <= py < self._y + self._h)
+
+    class Screen:
+        def __init__(self, geo):
+            self._geo = geo
+
+        def geometry(self):
+            return self._geo
+
+    primary = Screen(Geo(0, 0, 1920, 1080))
+    secondary = Screen(Geo(1920, 0, 2560, 1440))
+    monkeypatch.setattr(
+        QGuiApplication, "screens", staticmethod(lambda: [primary, secondary])
+    )
+    monkeypatch.setattr(aa, "load_avatar_pos", lambda p: (2000, 200))
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    x, y = ui._initial_avatar_pos(primary.geometry())
+    assert (x, y) == (2000, 200)

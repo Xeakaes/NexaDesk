@@ -67,7 +67,7 @@ import mss
 import pyautogui
 from PIL import Image
 
-from vendor.sc_server.sc_core.backends import PlatformBackend
+from vendor.sc_server.sc_core.backends import PlatformBackend, monitor_for_point
 
 pyautogui.FAILSAFE = True   # cursor to top-left corner aborts all commands
 pyautogui.PAUSE = 0.05      # short inter-command delay
@@ -218,6 +218,18 @@ def list_monitors() -> list[dict]:
                 "is_primary": i == 1,
             })
     return monitors
+
+
+def monitor_for_window(hwnd: int) -> int:
+    """Monitor containing the window centre; primary fallback (B26)."""
+    from ctypes import wintypes
+
+    rc = wintypes.RECT()
+    if not _user32.GetWindowRect(int(hwnd), ctypes.byref(rc)):
+        return 1
+    return monitor_for_point(list_monitors(),
+                             (rc.left + rc.right) // 2,
+                             (rc.top + rc.bottom) // 2)
 
 
 def get_platform() -> str:
@@ -1199,6 +1211,7 @@ class WindowsBackend(PlatformBackend):
     # capture
     screen_size = staticmethod(screen_size)
     list_monitors = staticmethod(list_monitors)
+    monitor_for_window = staticmethod(monitor_for_window)
     screenshot = staticmethod(screenshot)
     screenshot_jpeg = staticmethod(screenshot_jpeg)
     screenshot_scaled = staticmethod(screenshot_scaled)

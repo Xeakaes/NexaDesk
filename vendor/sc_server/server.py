@@ -603,6 +603,11 @@ def monitors():
 @app.get("/api/screenshot")
 def screenshot():
     monitor = request.args.get("monitor", 1, type=int)
+    hwnd = request.args.get("hwnd", type=int)
+    if hwnd is not None and request.args.get("monitor") is None:
+        # B26: window-aware default — capture the monitor that holds the
+        # target window instead of always monitor 1.
+        monitor = _b().monitor_for_window(hwnd)
     try:
         region = _validated_region()
     except ValueError as exc:
@@ -888,8 +893,16 @@ def ocr():
     """OCR the screen (or a region) to extract text — the 'eyes' of the agent."""
     body = request.get_json(force=True, silent=True) or {}
     region = body.get("region")
+    monitor = body.get("monitor")
+    hwnd = body.get("hwnd")
+    if monitor is None and hwnd is not None:
+        # B26: window-aware default — OCR the monitor that holds the window.
+        monitor = _b().monitor_for_window(int(hwnd))
     with _read_lock:
-        img = _b().screenshot(region=tuple(region) if region else None)
+        img = _b().screenshot(
+            monitor=int(monitor) if monitor is not None else 1,
+            region=tuple(region) if region else None,
+        )
     engine = get_ocr_engine()
     if engine is None:
         msg = ("OCR engine not installed. Install: python -m pip install rapidocr-onnxruntime"

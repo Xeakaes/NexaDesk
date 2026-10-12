@@ -18,13 +18,13 @@ class FakeClient:
         if self.exc:
             raise self.exc
 
-    def screenshot(self, output=None, monitor=1, region=None):
-        self.calls.append(("screenshot", output))
+    def screenshot(self, output=None, monitor=None, region=None, hwnd=None):
+        self.calls.append(("screenshot", output, monitor, hwnd))
         self._maybe_raise()
         return b"jpegbytes"
 
-    def ocr(self, region=None):
-        self.calls.append(("ocr", region))
+    def ocr(self, region=None, monitor=None, hwnd=None):
+        self.calls.append(("ocr", region, monitor, hwnd))
         self._maybe_raise()
         return {"text": self.ocr_text}
 
@@ -134,3 +134,29 @@ def test_registered_names_match_spec():
     assert set(reg.names()) == {
         "screenshot", "ocr_screen", "mouse", "keyboard", "list_windows", "focus_window"
     }
+
+
+def test_screenshot_passes_hwnd_for_monitor_resolution():
+    # B26: the tool must forward hwnd so the server can capture the monitor
+    # showing that window instead of always monitor 1.
+    from core.agent.cancellation import CancellationToken
+    from core.tools.screen_control import register_screen_control
+
+    reg = ToolRegistry()
+    client = FakeClient()
+    register_screen_control(reg, lambda: client)
+    r = reg.get("screenshot").execute({"hwnd": 42}, CancellationToken())
+    assert r.ok
+    assert client.calls[0][3] == 42
+
+
+def test_ocr_passes_hwnd_for_monitor_resolution():
+    from core.agent.cancellation import CancellationToken
+    from core.tools.screen_control import register_screen_control
+
+    reg = ToolRegistry()
+    client = FakeClient()
+    register_screen_control(reg, lambda: client)
+    r = reg.get("ocr_screen").execute({"hwnd": 7}, CancellationToken())
+    assert r.ok
+    assert client.calls[0][3] == 7

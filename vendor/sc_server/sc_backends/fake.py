@@ -70,6 +70,11 @@ class FakeBackend(PlatformBackend):
         return [{"id": 1, "name": "Monitor 1", "left": 0, "top": 0,
                  "width": _W, "height": _H, "is_primary": True}]
 
+    def monitor_for_window(self, hwnd: int) -> int:
+        # B26: the fake desktop is a single monitor; record for assertions.
+        self._record("monitor_for_window", (hwnd,))
+        return 1
+
     def screenshot(self, monitor: int = 1, region=None):
         self._record("screenshot", (monitor, region))
         return self._frame()

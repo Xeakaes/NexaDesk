@@ -63,7 +63,7 @@ class _ScreenshotTool(_ScreenControlTool):
             shots = data_dir() / "shots"
             shots.mkdir(parents=True, exist_ok=True)
             path = str(shots / f"shot-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.jpg")
-            client.screenshot(output=path)
+            client.screenshot(output=path, hwnd=args.get("hwnd"))
             data = {"path": path}
             # Attach a resized base64 data-URI so vision models can see it.
             try:
@@ -92,7 +92,7 @@ class _ScreenshotTool(_ScreenControlTool):
 class _OcrScreenTool(_ScreenControlTool):
     def execute(self, arguments: dict, cancel: CancellationToken) -> ToolResult:
         def run(client, args):
-            return client.ocr()
+            return client.ocr(hwnd=args.get("hwnd"))
         return self._run(arguments, cancel, run)
 
 
@@ -176,14 +176,20 @@ def register_screen_control(
     del timeout_s  # per-call timeout is enforced by the runtime wall clock + SDK HTTP timeout
     registry.register(_ScreenshotTool(
         "screenshot",
-        "Take a screenshot of the desktop and return its file path.",
-        {"type": "object", "properties": {}, "required": []},
+        "Take a screenshot of the desktop and return its file path. "
+        "Pass hwnd to capture the monitor showing that window (multi-monitor).",
+        {"type": "object",
+         "properties": {"hwnd": {"type": ["integer", "null"]}},
+         "required": []},
         client_factory,
     ))
     registry.register(_OcrScreenTool(
         "ocr_screen",
-        "Read text currently visible on the screen via OCR.",
-        {"type": "object", "properties": {}, "required": []},
+        "Read text currently visible on the screen via OCR. "
+        "Pass hwnd to read the monitor showing that window (multi-monitor).",
+        {"type": "object",
+         "properties": {"hwnd": {"type": ["integer", "null"]}},
+         "required": []},
         client_factory,
     ))
     registry.register(_MouseTool(

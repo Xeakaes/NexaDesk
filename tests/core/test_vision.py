@@ -34,7 +34,7 @@ def test_screenshot_tool_result_includes_data_uri(tmp_path, monkeypatch):
     png = _make_png_bytes()
 
     class FakeClient:
-        def screenshot(self, output):
+        def screenshot(self, output, monitor=None, region=None, hwnd=None):
             with open(output, "wb") as f:
                 f.write(png)
 

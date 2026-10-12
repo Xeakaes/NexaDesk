@@ -162,6 +162,35 @@ class PlatformBackend(ABC):
     @abstractmethod
     def game_active(self) -> bool: ...
 
+    # -- multi-monitor (B26) --------------------------------------------
+    def monitor_for_window(self, hwnd: int) -> int:
+        """1-based monitor index containing the window (default: unsupported).
+
+        B26: capture/OCR default to monitor 1; window-aware callers resolve
+        the monitor that actually holds the target window.
+        """
+        from vendor.sc_server.sc_core.errors import ApiError
+
+        raise ApiError("UNSUPPORTED",
+                       "monitor_for_window is not supported on this platform",
+                       status=501)
+
+
+def monitor_for_point(monitors: list, x: int, y: int) -> int:
+    """1-based id of the monitor containing (x, y); primary fallback (B26).
+
+    ``monitors`` uses the list_monitors() shape: left/top/width/height plus
+    id and is_primary.
+    """
+    for mon in monitors:
+        if (mon["left"] <= x < mon["left"] + mon["width"]
+                and mon["top"] <= y < mon["top"] + mon["height"]):
+            return mon["id"]
+    for mon in monitors:
+        if mon.get("is_primary"):
+            return mon["id"]
+    return monitors[0]["id"] if monitors else 1
+
 
 def create_backend(backend_name: "str | None" = None) -> PlatformBackend:
     """Instantiate a backend by name (lazy import of only that backend).
