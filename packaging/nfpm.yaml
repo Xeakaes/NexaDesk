@@ -7,6 +7,27 @@ priority: optional
 maintainer: Xeakaes <194935315+Xeakaes@users.noreply.github.com>
 description: Desktop AI Assistant with chat GUI, avatar mode, and bundled screen-control.
 license: MIT
+# B30: the frozen PyInstaller binary needs the system Qt/xcb runtime —
+# without these, minimal Debian/Ubuntu installs die with "Could not load
+# the Qt platform plugin xcb".
+depends:
+  - libxkbcommon0
+  - libgl1
+  - libegl1
+  - libdbus-1-3
+  - libfontconfig1
+  - libfreetype6
+  - libglib2.0-0
+  - libx11-xcb1
+  - libxcb-cursor0
+  - libxcb-icccm4
+  - libxcb-image0
+  - libxcb-keysyms1
+  - libxcb-randr0
+  - libxcb-render-util0
+  - libxcb-shape0
+  - libxcb-xinerama0
+  - libxcb-xkb1
 replaces:
   - desktop-assistant
 contents:
