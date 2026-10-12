@@ -48,7 +48,12 @@ def ensure_secrets_mode(path: Path) -> None:
         return
     mode = stat.S_IMODE(Path(path).stat().st_mode)
     if mode != 0o600:
-        raise ConfigError(f"secrets file {path} must have mode 0600, got {oct(mode)}")
+        # B59: give the actionable fix with the real path — "fix the file"
+        # alone pushes users to delete their API keys.
+        raise ConfigError(
+            f"secrets file {path} must have mode 0600, got {oct(mode)}; "
+            f"run: chmod 600 {path}"
+        )
 
 
 def save_settings(path: Path, data: dict) -> None:

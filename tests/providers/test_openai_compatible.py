@@ -491,3 +491,31 @@ def test_openai_403_maps_unauthorized():
     with pytest.raises(ProviderError) as ei:
         p.complete(_msgs(), [], CancellationToken())
     assert ei.value.error_code == "unauthorized"
+
+
+def test_tool_unsupported_400_maps_unsupported_capability():
+    # B37: a model without tool support answers 400 mentioning tools; that
+    # must surface as unsupported_capability with the real provider message,
+    # not a generic HTTP error.
+    body = {"error": {"message": "tools are not supported by this model"}}
+    session = FakeSession(
+        FakeResponse(body, status_code=400, text=json.dumps(body))
+    )
+    p = OpenAICompatibleProvider("http://api", "key", "model", session=session)
+    schemas = [{"name": "echo", "input_schema": {"type": "object"}}]
+    with pytest.raises(ProviderError) as ei:
+        p.complete(_msgs(), schemas, CancellationToken())
+    assert ei.value.error_code == "unsupported_capability"
+    assert "tools are not supported" in ei.value.message
+
+
+def test_openai_empty_tool_call_id_gets_generated():
+    wire_calls = [{
+        "id": "",
+        "type": "function",
+        "function": {"name": "echo", "arguments": "{}"},
+    }]
+    session = FakeSession(FakeResponse(_payload(tool_calls=wire_calls)))
+    p = OpenAICompatibleProvider("http://api", "key", "model", session=session)
+    r = p.complete(_msgs(), [], CancellationToken())
+    assert r.tool_calls[0].id

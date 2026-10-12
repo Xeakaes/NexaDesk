@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import random
 import time
+import uuid
 from urllib.parse import urlparse
 
 import requests
@@ -75,6 +76,12 @@ def _looks_like_image_error(text: str) -> bool:
         key in lowered
         for key in ("image", "vision", "multimodal", "image_url", "base64")
     )
+
+
+def _looks_like_tool_error(text: str) -> bool:
+    """Heuristic: did the 400 reject the tools payload (model has no tool support)?"""
+    lowered = text.lower()
+    return any(key in lowered for key in ("tool", "function", "tool_call"))
 
 
 # Hosted providers (Groq above all) answer 429/529 when a burst of tool-calls
@@ -345,6 +352,15 @@ class OpenAICompatibleProvider(ModelProvider):
                     " check the key in Settings",
                     error_code="unauthorized",
                 )
+            if resp.status_code == 400 and tools and _looks_like_tool_error(resp.text):
+                # B37: a tool-less model rejects the tools payload with a 400
+                # naming tools/functions. Keep the real provider message and a
+                # distinct code so the UI can say "model has no tool support"
+                # instead of a generic HTTP failure.
+                raise ProviderError(
+                    f"model does not support tool calling: {resp.text}",
+                    error_code="unsupported_capability",
+                )
             resp.raise_for_status()
             payload = resp.json()
         except requests.Timeout as exc:
@@ -356,11 +372,13 @@ class OpenAICompatibleProvider(ModelProvider):
         except (KeyError, IndexError, TypeError) as exc:
             raise ProviderError("malformed provider response", error_code="provider_error") from exc
         tool_calls: list[ToolCall] = []
-        for raw in message.get("tool_calls") or []:
+        for i, raw in enumerate(message.get("tool_calls") or []):
             fn = raw.get("function") or {}
             tool_calls.append(
                 ToolCall(
-                    id=raw.get("id", ""),
+                    # B36: some endpoints omit ids; empty ids break the
+                    # tool-call/tool-result pairing in history replay.
+                    id=raw.get("id") or f"call_{uuid.uuid4().hex[:12]}_{i}",
                     name=fn.get("name", ""),
                     arguments=_parse_arguments(fn.get("arguments")),
                 )

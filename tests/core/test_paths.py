@@ -178,3 +178,19 @@ def test_migrate_legacy_dirs_does_not_overwrite(monkeypatch, tmp_path):
     (new_data / "history.db").write_bytes(b"new")
     paths.migrate_legacy_dirs()
     assert (new_data / "history.db").read_bytes() == b"new"
+
+
+def test_config_dir_frozen_honors_xdg_config_home(monkeypatch, tmp_path):
+    # B55: frozen Linux builds must respect XDG_CONFIG_HOME.
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "bundle"), raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdgcfg"))
+    assert paths.config_dir() == tmp_path / "xdgcfg" / "NexaDesk"
+
+
+def test_data_dir_honors_xdg_data_home(monkeypatch, tmp_path):
+    # B55: frozen Linux builds must respect XDG_DATA_HOME.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdgdata"))
+    d = paths.data_dir()
+    assert d == tmp_path / "xdgdata" / "NexaDesk"
+    assert d.exists()

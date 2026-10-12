@@ -47,7 +47,9 @@ def config_dir() -> Path:
         if os.name == "nt":
             base = Path(os.environ.get("APPDATA", str(Path.home()))) / "NexaDesk"
         else:
-            base = Path.home() / ".config" / "NexaDesk"
+            # B55: honor XDG_CONFIG_HOME like every other Linux desktop app.
+            xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+            base = (Path(xdg) if xdg else Path.home() / ".config") / "NexaDesk"
         return base
     return repo_root() / "config"
 
@@ -56,7 +58,9 @@ def data_dir() -> Path:
     if os.name == "nt":
         base = Path(os.environ.get("APPDATA", str(Path.home()))) / "NexaDesk"
     else:
-        base = Path.home() / ".local" / "share" / "NexaDesk"
+        # B55: honor XDG_DATA_HOME like every other Linux desktop app.
+        xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+        base = (Path(xdg) if xdg else Path.home() / ".local" / "share") / "NexaDesk"
     base.mkdir(parents=True, exist_ok=True)
     return base
 

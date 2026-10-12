@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 import requests
 
@@ -181,7 +182,9 @@ class OllamaProvider(ModelProvider):
                 parse_error = exc.message
             tool_calls.append(
                 ToolCall(
-                    id=f"ollama_{i}",
+                    # B36: index-only ids collide across turns when history
+                    # replays; uuid keeps every call unique in the session.
+                    id=f"ollama_{uuid.uuid4().hex[:12]}_{i}",
                     name=name,
                     arguments=arguments,
                     parse_error=parse_error,
@@ -205,7 +208,7 @@ class OllamaProvider(ModelProvider):
                 ):
                     tool_calls.append(
                         ToolCall(
-                            id="ollama_0",
+                            id=f"ollama_{uuid.uuid4().hex[:12]}_0",
                             name=embedded["name"],
                             arguments=_parse_arguments(embedded.get("arguments")),
                         )

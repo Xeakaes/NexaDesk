@@ -53,3 +53,15 @@ def test_save_settings_preserves_other_keys(tmp_path):
     data2 = load_settings(p)
     assert data2["provider"]["type"] == "groq"
     assert data2["avatar"] == "teto"
+
+def test_ensure_secrets_mode_error_suggests_chmod_with_full_path(tmp_path):
+    # B59: the dialog must give the actionable fix with the real path —
+    # "fix the file" alone leads users to delete their API keys.
+    p = tmp_path / "secrets.json"
+    p.write_text("{}")
+    os.chmod(p, 0o644)
+    with pytest.raises(ConfigError) as ei:
+        ensure_secrets_mode(p)
+    msg = str(ei.value)
+    assert "chmod 600" in msg
+    assert str(p) in msg

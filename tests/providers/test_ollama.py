@@ -127,3 +127,17 @@ def test_ollama_list_models_parses_tags():
     p = OllamaProvider("http://127.0.0.1:11434", "m", session=s)
     assert p.list_models() == ["llama3:8b", "qwen:4b"]
     assert s.url == "http://127.0.0.1:11434/api/tags"
+
+
+def test_ollama_tool_call_ids_unique_across_calls():
+    # B36: "ollama_{i}" collides across turns (history replays duplicate ids).
+    payload = {
+        "message": {"tool_calls": [{"function": {"name": "echo", "arguments": {}}}]},
+        "done": True,
+    }
+    session = FakeSession(FakeResponse(payload))
+    p = OllamaProvider("http://127.0.0.1:11434", "m", session=session)
+    r1 = p.complete(_msgs(), [], CancellationToken())
+    r2 = p.complete(_msgs(), [], CancellationToken())
+    assert r1.tool_calls[0].id != r2.tool_calls[0].id
+    assert r1.tool_calls[0].id

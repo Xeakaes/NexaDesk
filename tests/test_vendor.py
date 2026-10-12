@@ -200,3 +200,16 @@ def test_ocr_resolves_monitor_for_window(tmp_path, monkeypatch):
     assert shots, "ocr must capture through the resolved monitor"
     last = shots[-1]
     assert last[1][0] == 2 or last[2].get("monitor") == 2
+
+
+def test_sdk_local_token_fallback_reads_sc_server_dir(tmp_path, monkeypatch):
+    # B54: the fallback must read vendor/sc_server/.token (where the server
+    # writes it), not vendor/.token one level too high.
+    import vendor.sc_server.sdk as sdk
+
+    srv = tmp_path / "sc_server"
+    srv.mkdir()
+    (srv / ".token").write_text("tok123\n", encoding="utf-8")
+    monkeypatch.setattr(sdk, "__file__", str(srv / "sdk.py"))
+    client = sdk.ScreenControl.__new__(sdk.ScreenControl)
+    assert client._load_local_token() == "tok123"

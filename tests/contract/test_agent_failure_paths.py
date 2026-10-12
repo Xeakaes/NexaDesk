@@ -316,3 +316,30 @@ def test_tool_pool_saturation_fails_fast_with_distinct_code():
     )
     # Fail-fast: the saturated call must not burn the full tool_timeout again.
     assert elapsed < 0.15 * 5 + 0.45
+
+
+def test_tool_call_ids_unique_and_nonempty_across_turns():
+    # B36: providers may collide (ollama_0) or send empty ids; the runtime
+    # must guarantee unique non-empty ids before they hit session history.
+    tool = FakeTool("echo")
+    provider = FakeProvider([
+        ProviderResponse(text=None, tool_calls=[
+            ToolCall(id="dup", name="echo", arguments={}),
+            ToolCall(id="", name="echo", arguments={}),
+        ]),
+        ProviderResponse(text=None, tool_calls=[ToolCall(id="dup", name="echo", arguments={})]),
+        ProviderResponse(text="ok", tool_calls=[]),
+        ProviderResponse(text="neutral", tool_calls=[]),  # F1 classifier call
+    ])
+    rt, _ = _runtime(provider, tool)
+    rt.start_task("s1", "echo twice")
+    tool_ids = [m.tool_call_id for m in rt._session.messages("s1") if m.role == "tool"]
+    assert len(tool_ids) == 3
+    assert all(tool_ids)
+    assert len(set(tool_ids)) == 3
+    # assistant tool_calls must carry the same rewritten ids
+    asst_ids = [
+        c.id for m in rt._session.messages("s1") if m.role == "assistant" and m.tool_calls
+        for c in m.tool_calls
+    ]
+    assert asst_ids == tool_ids

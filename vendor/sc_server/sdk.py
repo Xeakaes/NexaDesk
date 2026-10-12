@@ -84,7 +84,7 @@ class ScreenControl:
     
     def _load_local_token(self) -> str:
         """Load token from local .token file."""
-        token_file = Path(__file__).parent.parent / ".token"
+        token_file = Path(__file__).resolve().parent / ".token"
         if token_file.exists():
             return token_file.read_text().strip()
         raise ScreenControlError("No API key provided and no local .token file found")

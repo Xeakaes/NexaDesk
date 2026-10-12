@@ -79,9 +79,19 @@ class _LinkedToken(CancellationToken):
             raise TaskCancelled()
 
     def wait(self, timeout: float) -> bool:
-        if self._parent.cancelled:
-            self.cancel()
-        return super().wait(timeout) or self._parent.wait(0)
+        # B38: a single super().wait(timeout) would block for the whole
+        # timeout even when the PARENT is cancelled mid-wait. Poll in small
+        # slices so parent cancellation is observed promptly.
+        deadline = time.monotonic() + timeout
+        while True:
+            if self._parent.cancelled:
+                self.cancel()
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            if super().wait(min(0.05, remaining)):
+                return True
 
 
 class _Task:
@@ -207,6 +217,7 @@ class AgentRuntime:
         tool_timings: list[dict] = []
         outcome = "finished"
         error_code: str | None = None
+        seen_tool_ids: set[str] = set()
         self._events.publish("agent_started", sid, tid, {})
         tool_calls_used = 0
         schemas = self._registry.schemas()
@@ -215,7 +226,14 @@ class AgentRuntime:
                 outcome, error_code = "error", "unsupported_capability"
                 self._events.publish(
                     "agent_error", sid, tid,
-                    {"error_code": "unsupported_capability", "message": "provider has no tool support"},
+                    {
+                        "error_code": "unsupported_capability",
+                        "message": (
+                            f"provider {type(self._provider).__name__}"
+                            f" (model {getattr(self._provider, 'model', '?')})"
+                            " has no tool support; pick a tool-capable model"
+                        ),
+                    },
                 )
                 return
             while True:
@@ -260,6 +278,13 @@ class AgentRuntime:
                     )
                     self._events.publish("agent_finished", sid, tid, {"final_text": text})
                     return
+                # B36: enforce unique non-empty tool-call ids before history
+                # stores them — colliding or empty ids break tool/tool-result
+                # pairing on the next provider request.
+                for index, call in enumerate(response.tool_calls):
+                    if not call.id or call.id in seen_tool_ids:
+                        call.id = uuid.uuid4().hex
+                    seen_tool_ids.add(call.id)
                 self._session.add_message(
                     sid, "assistant", response.text, tool_calls=response.tool_calls
                 )
