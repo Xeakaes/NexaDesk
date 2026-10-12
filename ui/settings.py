@@ -287,16 +287,25 @@ class SettingsWindow(QWidget):
         self._pack_pick = QPushButton(self)
         self._pack_build = QPushButton(self)
         self._pack_delete = QPushButton(self)
+        self._ai_model = QComboBox(self)
+        self._ai_model.setEditable(True)
+        self._ai_generate = QPushButton(self)
+        self._ai_cancel = QPushButton(self)
+        self._ai_cancel.hide()
         avatar_form = QFormLayout()
         self._lbl_avatar = QLabel(self)
         self._lbl_pack_photo = QLabel(self)
         self._lbl_pack_name = QLabel(self)
+        self._lbl_ai_model = QLabel(self)
         avatar_form.addRow(self._lbl_avatar, self._avatar)
         avatar_form.addRow(self._lbl_pack_photo, self._pack_path)
         avatar_form.addRow(self._lbl_pack_name, self._pack_name)
         avatar_form.addRow("", self._pack_pick)
         avatar_form.addRow("", self._pack_build)
         avatar_form.addRow("", self._pack_delete)
+        avatar_form.addRow(self._lbl_ai_model, self._ai_model)
+        avatar_form.addRow("", self._ai_generate)
+        avatar_form.addRow("", self._ai_cancel)
         avatar_box = QGroupBox(self)
         avatar_box.setLayout(avatar_form)
 
@@ -335,6 +344,9 @@ class SettingsWindow(QWidget):
         self._pack_build.setEnabled(False)
         self._pack_path.textChanged.connect(self._update_build_enabled)
         self._pack_name.textChanged.connect(self._update_build_enabled)
+        self._ai_generate.setEnabled(False)
+        self._ai_model.editTextChanged.connect(self._update_build_enabled)
+        self._ai_fetch_gen = 0  # F2: latest AI catalog fetch wins
 
         language_bridge.changed.connect(self._on_language_changed)
 
@@ -375,6 +387,9 @@ class SettingsWindow(QWidget):
         self._lbl_avatar.setText(t("settings.section_avatar"))
         self._lbl_pack_photo.setText(t("settings.pack_pick"))
         self._lbl_pack_name.setText(t("settings.pack_name"))
+        self._lbl_ai_model.setText(t("settings.ai_model"))
+        self._ai_generate.setText(t("settings.ai_generate"))
+        self._ai_cancel.setText(t("settings.ai_cancel"))
         self._lang.setItemText(0, t("settings.lang_tr"))
         self._lang.setItemText(1, t("settings.lang_en"))
         self._theme.setItemText(0, t("settings.theme_dark"))
@@ -400,6 +415,7 @@ class SettingsWindow(QWidget):
         self._provider_url.setText(preset_url(ptype))
         self._provider_warning.setVisible(ptype == "github")
         self._fetch_models()
+        self._fetch_ai_models()
 
     def _fetch_models(self) -> None:
         """Fill the model dropdown from the provider catalog (background)."""
@@ -445,6 +461,48 @@ class SettingsWindow(QWidget):
             return
         self._btn_refresh_models.setEnabled(True)
 
+    def _fetch_ai_models(self) -> None:
+        """Fill the AI image-model dropdown from the provider catalog (F2)."""
+        ptype = self._provider_type.currentText()
+        key_name = PROVIDER_KEY_SECRETS.get(ptype, "api_key")
+        secrets = self._read(self._secrets_path)
+        key_value = self._provider_key.text().strip()
+        if key_value:
+            secrets[key_name] = key_value
+        settings = self._read(self._settings_path)
+        settings["provider"] = {
+            "type": ptype,
+            "url": self._provider_url.text().strip(),
+            "model": self._provider_model.currentText().strip(),
+        }
+        self._ai_model_worker = _ModelListWorker(settings, secrets)
+        self._ai_fetch_gen += 1
+        gen = self._ai_fetch_gen
+        self._ai_model_worker.signals.finished.connect(
+            lambda models, g=gen: self._on_ai_models_loaded(models, g)
+        )
+        self._ai_model_worker.signals.failed.connect(
+            lambda g=gen: self._on_ai_models_failed(g)
+        )
+        self._ai_model_worker.start()
+
+    def _on_ai_models_loaded(self, models: list, gen: int | None = None) -> None:
+        if gen is not None and gen != self._ai_fetch_gen:
+            # A superseded fetch must not overwrite the AI dropdown (B23 idiom).
+            return
+        from core.providers.image_gen import is_image_model
+
+        image_models = [m for m in models if is_image_model(m)]
+        current = self._ai_model.currentText().strip()
+        self._ai_model.clear()
+        self._ai_model.addItems(image_models)
+        if current:
+            self._ai_model.setCurrentText(current)
+
+    def _on_ai_models_failed(self, gen: int | None = None) -> None:
+        if gen is not None and gen != self._ai_fetch_gen:
+            return
+
     def load(self) -> None:
         settings = self._read(self._settings_path)
         secrets = self._read(self._secrets_path)
@@ -466,6 +524,9 @@ class SettingsWindow(QWidget):
         self._provider_key.setText(str(secrets.get(key_name, "")))
         if secrets.get(key_name):
             self._fetch_models()
+            self._fetch_ai_models()
+        ai = settings.get("avatar_ai") or {}
+        self._ai_model.setCurrentText(str(ai.get("model", "")))
         sc = settings.get("screen_control") or {}
         self._sc_host.setText(sc.get("host", "127.0.0.1"))
         self._sc_port.setValue(int(sc.get("port", 8745)))
@@ -523,6 +584,7 @@ class SettingsWindow(QWidget):
             per_tool,
         )
         settings["avatar"] = self._avatar.currentText() or "base"
+        settings["avatar_ai"] = {"model": self._ai_model.currentText().strip()}
         agent = settings.get("agent") or {}
         agent["persona"] = self._persona.toPlainText().strip()
         settings["agent"] = agent
@@ -564,8 +626,12 @@ class SettingsWindow(QWidget):
         self.raise_()
 
     def _update_build_enabled(self, *_a) -> None:
-        ok = bool(self._pack_path.text().strip()) and bool(self._pack_name.text().strip())
-        self._pack_build.setEnabled(ok)
+        has_photo = bool(self._pack_path.text().strip()) and bool(self._pack_name.text().strip())
+        self._pack_build.setEnabled(has_photo)
+        has_ai = bool(self._pack_path.text().strip()) and bool(
+            self._ai_model.currentText().strip()
+        )
+        self._ai_generate.setEnabled(has_ai)
 
     def _pick_photo(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

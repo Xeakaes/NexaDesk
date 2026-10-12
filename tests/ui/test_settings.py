@@ -466,14 +466,114 @@ def test_stale_model_list_worker_cannot_apply_results(tmp_path, monkeypatch):
     monkeypatch.setattr(sw, "_ModelListWorker", FakeWorker)
     win = SettingsWindow(settings, secrets, ui_json)
     win.load()
-    win._provider_type.setCurrentText("github")  # fetch #1
-    win._provider_type.setCurrentText("groq")    # fetch #2
-    assert len(workers) == 2
+    win._provider_type.setCurrentText("github")  # fetch #1 (models + ai)
+    win._provider_type.setCurrentText("groq")    # fetch #2 (models + ai)
+    # Each type change starts two workers: the provider catalog and the F2
+    # AI image-model catalog. Provider workers are [0] and [2].
+    assert len(workers) == 4
     # Fetch #1 finishes late, after the user already moved on to groq.
     workers[0].signals.finished.emit(["stale-model"])
     assert win._provider_model.findText("stale-model") == -1
     # The current fetch still applies.
-    workers[1].signals.finished.emit(["fresh-model"])
+    workers[2].signals.finished.emit(["fresh-model"])
     assert win._provider_model.findText("fresh-model") >= 0
+    win.hide()
+    win.deleteLater()
+
+
+def test_avatar_ai_model_round_trip(tmp_path):
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._ai_model.setCurrentText("gpt-image-1")
+    win.save()
+    data = json.loads(settings.read_text())
+    assert data["avatar_ai"]["model"] == "gpt-image-1"
+    win2 = SettingsWindow(settings, secrets, ui_json)
+    win2.load()
+    assert win2._ai_model.currentText() == "gpt-image-1"
+    win.hide()
+    win.deleteLater()
+    win2.hide()
+    win2.deleteLater()
+
+
+def test_ai_model_dropdown_filters_to_image_models(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._ai_fetch_gen = 1
+    win._on_ai_models_loaded(["gpt-image-1", "llama-3.3-70b", "dall-e-3"], 1)
+    items = [win._ai_model.itemText(i) for i in range(win._ai_model.count())]
+    assert items == ["gpt-image-1", "dall-e-3"]
+    win.hide()
+    win.deleteLater()
+
+
+def test_ai_model_fetch_generation_guard(tmp_path, monkeypatch):
+    import ui.settings as sw
+    from PySide6.QtWidgets import QApplication
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+
+    workers = []
+
+    class FakeWorker:
+        def __init__(self, s, k):
+            self.signals = sw._ModelListSignals()
+            workers.append(self)
+
+        def start(self):
+            pass
+
+        def wait(self, ms=5000):
+            return True
+
+    monkeypatch.setattr(sw, "_ModelListWorker", FakeWorker)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._fetch_ai_models()  # fetch #1
+    win._fetch_ai_models()  # fetch #2
+    assert len(workers) == 2
+    # A stale fetch (superseded provider) must not refill the AI dropdown.
+    workers[0].signals.finished.emit(["stale-image-model"])
+    assert win._ai_model.findText("stale-image-model") == -1
+    workers[1].signals.finished.emit(["fresh-image-model"])
+    assert win._ai_model.findText("fresh-image-model") >= 0
+    win.hide()
+    win.deleteLater()
+
+
+def test_ai_generate_gated_on_model_and_photo(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._pack_path.setText("/tmp/photo.png")
+    win._pack_name.setText("photo")
+    win._ai_model.setCurrentText("")
+    assert not win._ai_generate.isEnabled()
+    win._ai_model.setCurrentText("gpt-image-1")
+    assert win._ai_generate.isEnabled()
+    win._pack_path.setText("")
+    assert not win._ai_generate.isEnabled()
     win.hide()
     win.deleteLater()

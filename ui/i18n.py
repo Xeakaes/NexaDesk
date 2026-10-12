@@ -108,6 +108,26 @@ STRINGS: dict[str, dict[str, str]] = {
     "settings.pack_success": {"tr": "Paket oluşturuldu: {name}", "en": "Pack created: {name}"},
     "settings.pack_exists": {"tr": "Bu isim zaten var: {name}", "en": "Name already exists: {name}"},
     "settings.pack_bad_image": {"tr": "Geçersiz veya bozuk görsel.", "en": "Invalid or corrupt image."},
+    "settings.ai_model": {"tr": "AI görsel modeli", "en": "AI image model"},
+    "settings.ai_generate": {"tr": "AI ile paket oluştur", "en": "Generate pack with AI"},
+    "settings.ai_cancel": {"tr": "İptal", "en": "Cancel"},
+    "settings.ai_privacy": {
+        "tr": "Fotoğraf ve istemler yalnızca seçtiğiniz sağlayıcıya gider.",
+        "en": "Your photo and prompts go only to the selected provider.",
+    },
+    "settings.ai_progress": {
+        "tr": "Durum {i}/{total} üretiliyor: {name}",
+        "en": "Generating state {i}/{total}: {name}",
+    },
+    "settings.ai_success": {"tr": "AI paketi oluşturuldu: {name}", "en": "AI pack created: {name}"},
+    "settings.ai_failed": {
+        "tr": "AI paketi oluşturulamadı: {error}",
+        "en": "AI pack generation failed: {error}",
+    },
+    "settings.ai_fallback": {
+        "tr": "Görsel model yoksa klasik paket oluşturucu çalışır.",
+        "en": "Without an image model the classic pack builder runs instead.",
+    },
     "settings.save_restart_note": {
         "tr": "Kaydedildi — izinler için yeniden başlatın",
         "en": "Saved — restart for permission changes",
