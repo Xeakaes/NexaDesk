@@ -236,3 +236,76 @@ def test_settings_save_emits_saved(tmp_path):
     assert json.loads(secrets.read_text())["groq_api_key"] == "gsk_saved"
     win.hide()
     win.deleteLater()
+
+
+def test_show_config_error_presents_dialog(monkeypatch):
+    # B25: a corrupt settings/secrets file must surface as a dialog, not a
+    # silent traceback-and-exit on a frozen GUI build.
+    import ui.app as uapp
+    from core.config import ConfigError
+
+    shown = {}
+
+    class FakeBox:
+        class Icon:
+            Critical = 3
+
+        class StandardButton:
+            Ok = 1
+
+        def __init__(self, *a):
+            pass
+
+        def setIcon(self, *_a):
+            pass
+
+        def setWindowTitle(self, title):
+            shown["title"] = title
+
+        def setText(self, text):
+            shown["text"] = text
+
+        def setStandardButtons(self, *_a):
+            pass
+
+        def exec(self):
+            shown["exec"] = True
+
+    monkeypatch.setattr(uapp, "QMessageBox", FakeBox)
+    uapp.show_config_error(ConfigError("secrets.json must have mode 0600"))
+    assert shown["exec"] is True
+    assert shown["title"] == "Ayar Dosyası Hatası"
+    assert "0600" in shown["text"]
+
+
+def test_build_runtime_or_none_shows_dialog_on_config_error(monkeypatch):
+    import ui.app as uapp
+    from core.config import ConfigError
+
+    shown = []
+
+    def boom(*a, **k):
+        raise ConfigError("settings.json is corrupt")
+
+    monkeypatch.setattr(uapp, "show_config_error", shown.append)
+    monkeypatch.setattr(uapp, "build_runtime", boom)
+    assert uapp._build_runtime_or_none() is None
+    assert len(shown) == 1
+    assert "corrupt" in str(shown[0])
+
+
+def test_avatar_main_handles_config_error(monkeypatch):
+    import ui.app as uapp
+    import ui.avatar_app as aa
+    from core.config import ConfigError
+
+    shown = []
+
+    def boom():
+        raise ConfigError("settings.json is corrupt")
+
+    monkeypatch.setattr(uapp, "show_config_error", shown.append)
+    monkeypatch.setattr(aa, "build_ui", boom)
+    assert aa.main() == 1
+    assert len(shown) == 1
+    assert "corrupt" in str(shown[0])

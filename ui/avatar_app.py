@@ -382,7 +382,15 @@ def build_ui() -> App:
 
 def main() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
-    ui = build_ui()
+    from core.config import ConfigError
+
+    from ui.app import show_config_error
+
+    try:
+        ui = build_ui()
+    except ConfigError as exc:  # B25: corrupt config → dialog, not silent exit
+        show_config_error(exc)
+        return 1
     ui.bubble.show()
     code = app.exec()
     os._exit(code)  # skip non-daemon ThreadPoolExecutor join on quit-while-busy

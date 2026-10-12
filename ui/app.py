@@ -49,6 +49,41 @@ def _guide_provider_setup(win, runtime) -> None:
         )
 
 
+def show_config_error(exc: Exception) -> None:
+    """Surface a ConfigError as a dialog (B25) — never a silent exit."""
+    box = QMessageBox()
+    box.setIcon(QMessageBox.Icon.Critical)
+    box.setWindowTitle(i18n.t("setup.config_error.title"))
+    box.setText(i18n.t("setup.config_error.message").format(error=exc))
+    box.setStandardButtons(QMessageBox.StandardButton.Ok)
+    box.exec()
+
+
+def _build_runtime_or_none():
+    """(runtime, bus, session, needs_setup), or None after showing a dialog.
+
+    B25: a corrupt settings/secrets file makes build_runtime raise ConfigError;
+    on a frozen GUI build that would be a silent exit with no window.
+    """
+    from core.config import ConfigError
+
+    try:
+        try:
+            runtime, bus, _session = build_runtime()
+            needs_setup = False
+        except ProviderError as exc:
+            if not is_missing_key_error(exc):
+                raise
+            # Fresh install: no API key yet. Boot with a placeholder provider
+            # and guide the user to Settings instead of dying.
+            runtime, bus, _session = build_runtime(provider=UnconfiguredProvider())
+            needs_setup = True
+    except ConfigError as exc:
+        show_config_error(exc)
+        return None
+    return runtime, bus, _session, needs_setup
+
+
 def main() -> int:
     ensure_user_config()
     app = QApplication.instance() or QApplication(sys.argv)
@@ -67,16 +102,10 @@ def main() -> int:
     if mode == "gui":
         from ui.gui.main_window import ChatWindow
 
-        try:
-            runtime, bus, _session = build_runtime()
-            needs_setup = False
-        except ProviderError as exc:
-            if not is_missing_key_error(exc):
-                raise
-            # Fresh install: no API key yet. Boot with a placeholder provider
-            # and guide the user to Settings instead of dying.
-            runtime, bus, _session = build_runtime(provider=UnconfiguredProvider())
-            needs_setup = True
+        built = _build_runtime_or_none()
+        if built is None:
+            return 1
+        runtime, bus, _session, needs_setup = built
         history = HistoryStore(default_db_path())
         win = ChatWindow(
             runtime=runtime,

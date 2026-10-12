@@ -133,6 +133,20 @@ STRINGS: dict[str, dict[str, str]] = {
         "tr": "Model yapılandırıldı — hazır.",
         "en": "Model configured — ready.",
     },
+    "setup.config_error.title": {
+        "tr": "Ayar Dosyası Hatası",
+        "en": "Settings File Error",
+    },
+    "setup.config_error.message": {
+        "tr": (
+            "Yapılandırma dosyası okunamadı:\n{error}\n\n"
+            "Dosyayı düzeltin ya da silin — NexaDesk yeniden oluşturur."
+        ),
+        "en": (
+            "The configuration file could not be read:\n{error}\n\n"
+            "Fix the file or delete it — NexaDesk will recreate it."
+        ),
+    },
     "settings.section_general": {"tr": "Genel", "en": "General"},
     "settings.section_provider": {"tr": "Sağlayıcı", "en": "Provider"},
     "settings.section_screen": {"tr": "Ekran kontrolü", "en": "Screen control"},
