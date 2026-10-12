@@ -1,4 +1,4 @@
-"""AI emotion-set pack orchestration (F2): fixed prompts + cleanup."""
+"""AI emotion-still pack orchestration (F1): emotion prompts + cleanup."""
 
 import base64
 import io
@@ -13,7 +13,7 @@ from ui.avatar.ai_pack import (
     build_ai_pack,
     emotion_prompt,
 )
-from ui.avatar.manifest import REQUIRED_STATES
+from ui.avatar.manifest import REQUIRED_EMOTIONS
 
 
 @pytest.fixture(autouse=True)
@@ -34,19 +34,19 @@ def _png_bytes(color=(40, 40, 40, 255)):
 
 
 def test_prompt_contract():
-    assert set(EMOTION_PROMPTS) == set(REQUIRED_STATES)
-    assert all(EMOTION_PROMPTS[s].strip() for s in REQUIRED_STATES)
-    assert emotion_prompt("idle").startswith(IDENTITY_BLOCK)
+    assert set(EMOTION_PROMPTS) == set(REQUIRED_EMOTIONS)
+    assert all(EMOTION_PROMPTS[s].strip() for s in REQUIRED_EMOTIONS)
+    assert emotion_prompt("happy").startswith(IDENTITY_BLOCK)
     with pytest.raises(KeyError):
         emotion_prompt("bogus")
 
 
-def test_build_ai_pack_generates_five_and_builds(tmp_path):
+def test_build_ai_pack_generates_five_emotions_and_builds_v2(tmp_path):
     calls = []
     progress = []
 
-    def generate(state, prompt):
-        calls.append((state, prompt))
+    def generate(emotion, prompt):
+        calls.append((emotion, prompt))
         return _png_bytes()
 
     out = tmp_path / "pack"
@@ -59,18 +59,22 @@ def test_build_ai_pack_generates_five_and_builds(tmp_path):
     )
 
     assert result == out
-    assert [c[0] for c in calls] == ["idle", "thinking", "working", "speaking", "error"]
+    assert [c[0] for c in calls] == list(REQUIRED_EMOTIONS)
     assert progress == [
-        ("idle", 1, 5), ("thinking", 2, 5), ("working", 3, 5),
-        ("speaking", 4, 5), ("error", 5, 5),
+        ("neutral", 1, 5), ("happy", 2, 5), ("sad", 3, 5),
+        ("angry", 4, 5), ("surprised", 5, 5),
     ]
-    assert (out / "manifest.json").is_file()
+    import json
+
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert "emotions" in manifest
+    assert set(manifest["emotions"]) == set(REQUIRED_EMOTIONS)
 
 
 def test_build_ai_pack_cleans_up_on_cancel(tmp_path):
     calls = {"n": 0}
 
-    def generate(state, prompt):
+    def generate(emotion, prompt):
         calls["n"] += 1
         return _png_bytes()
 
@@ -88,8 +92,8 @@ def test_build_ai_pack_cleans_up_on_cancel(tmp_path):
 
 
 def test_build_ai_pack_cleans_up_on_generator_failure(tmp_path):
-    def generate(state, prompt):
-        if state == "working":
+    def generate(emotion, prompt):
+        if emotion == "sad":
             raise RuntimeError("rate limited")
         return _png_bytes()
 
@@ -117,8 +121,8 @@ def test_build_ai_pack_never_deletes_preexisting_dir(tmp_path):
 
     calls = []
 
-    def generate(state, prompt):
-        calls.append(state)
+    def generate(emotion, prompt):
+        calls.append(emotion)
         return _png_bytes()
 
     with pytest.raises(PackError):

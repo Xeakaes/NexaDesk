@@ -49,7 +49,7 @@ class AvatarWindow(QWidget):
         self._active_menu: QMenu | None = None  # B22: strong ref while open
         self._avatar_dir = avatar_dir
         self._manifest = load_manifest(avatar_dir / "manifest.json")
-        self._states: dict[str, StateAnim] = self._manifest.states
+        self._emotion: str = "neutral"
         self._spinner_frames = load_spinner_frames(avatar_dir)
         self._state: AvatarState = "idle"
         self._frame_index = 0
@@ -86,6 +86,28 @@ class AvatarWindow(QWidget):
 
     def current_state(self) -> AvatarState:
         return self._state
+
+    def current_emotion(self) -> str:
+        return self._emotion
+
+    def set_emotion(self, emotion: str) -> None:
+        """Switch the emotion axis; unknown emotions fall back to neutral.
+
+        Keeps the current state and restarts frame playback from the new
+        emotion's animation for that state.
+        """
+        if emotion not in self._manifest.emotions:
+            emotion = "neutral"
+        if emotion == self._emotion:
+            return
+        self._emotion = emotion
+        self._frame_index = 0
+        self._start_timer()
+        self._render_frame()
+
+    def _anim(self) -> StateAnim:
+        emotions = self._manifest.emotions
+        return emotions.get(self._emotion, emotions["neutral"])[self._state]
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         if self._context_menu_factory is not None:
@@ -139,13 +161,13 @@ class AvatarWindow(QWidget):
             self._error_timer.stop()
 
     def _start_timer(self) -> None:
-        anim = self._states[self._state]
+        anim = self._anim()
         interval = max(1, int(1000 / anim.fps))
         self._timer.setInterval(interval)
         self._timer.start()
 
     def _advance(self) -> None:
-        anim = self._states[self._state]
+        anim = self._anim()
         if self._frame_index >= len(anim.frames) - 1:
             if anim.loop:
                 self._frame_index = 0
@@ -186,7 +208,7 @@ class AvatarWindow(QWidget):
             self._spinner.setVisible(False)
 
     def _render_frame(self) -> None:
-        anim = self._states[self._state]
+        anim = self._anim()
         path = anim.frames[self._frame_index]
         pix = QPixmap(path)
         if pix.isNull():
