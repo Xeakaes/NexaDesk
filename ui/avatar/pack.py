@@ -123,17 +123,27 @@ def transform(base: Image.Image, dx: int = 0, dy: int = 0, tint: bool = False) -
     return out
 
 
-def build_pack(source_image: Path, out_dir: Path, name: str) -> Path:
+def build_pack_from_state_images(
+    state_images: dict[str, Image.Image],
+    out_dir: Path,
+    name: str,
+    *,
+    preprocess: bool = True,
+) -> Path:
+    """Build a pack from one base image per REQUIRED_STATES entry.
+
+    With ``preprocess=True`` each image runs the background-strip → largest
+    component → crop/pad/resize pipeline first; ``False`` expects images that
+    are already normalized (preprocessed once upstream, e.g. by build_pack).
+    """
+    from ui.avatar.manifest import REQUIRED_STATES
+
     name = sanitize_pack_name(name)
+    missing = [s for s in REQUIRED_STATES if s not in state_images]
+    if missing:
+        raise PackError(f"missing states: {', '.join(missing)}")
     if out_dir.exists():
         raise PackError(f"exists: {out_dir}")
-    try:
-        img = Image.open(source_image)
-        img.load()
-    except Exception as exc:
-        raise PackError(f"bad image: {exc}") from exc
-    # Pre-downscale huge sources so the flood-fill background removal stays fast.
-    img.thumbnail((512, 512))
     # Build into a temp sibling, rename on success — no partial pack left on failure.
     import shutil
     import uuid
@@ -142,13 +152,18 @@ def build_pack(source_image: Path, out_dir: Path, name: str) -> Path:
     try:
         frames_dir = tmp_dir / "frames"
         frames_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            base = keep_largest_component(strip_background(img))
-            base = crop_pad_resize(base)
-        except PackError:
-            raise
-        except Exception as exc:
-            raise PackError(f"pipeline failed: {exc}") from exc
+        bases: dict[str, Image.Image] = {}
+        for state in REQUIRED_STATES:
+            img = state_images[state]
+            if preprocess:
+                try:
+                    img = keep_largest_component(strip_background(img))
+                    img = crop_pad_resize(img)
+                except PackError:
+                    raise
+                except Exception as exc:
+                    raise PackError(f"pipeline failed: {exc}") from exc
+            bases[state] = img
 
         manifest: dict = {"name": name, "states": {}}
         for state, cfg in STATE_TRANSFORMS.items():
@@ -162,7 +177,7 @@ def build_pack(source_image: Path, out_dir: Path, name: str) -> Path:
                 dx = (cfg.get("dx") or [0] * n)[i]
                 dy = (cfg.get("dy") or [0] * n)[i]
                 tint = (cfg.get("tint") or [False] * n)[i]
-                frame = transform(base, dx=dx, dy=dy, tint=tint)
+                frame = transform(bases[state], dx=dx, dy=dy, tint=tint)
                 rel = f"frames/{state}_{i:02d}.png"
                 frame.save(tmp_dir / rel)
                 rels.append(rel)
@@ -177,6 +192,29 @@ def build_pack(source_image: Path, out_dir: Path, name: str) -> Path:
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
+
+
+def build_pack(source_image: Path, out_dir: Path, name: str) -> Path:
+    name = sanitize_pack_name(name)
+    if out_dir.exists():
+        raise PackError(f"exists: {out_dir}")
+    try:
+        img = Image.open(source_image)
+        img.load()
+    except Exception as exc:
+        raise PackError(f"bad image: {exc}") from exc
+    # Pre-downscale huge sources so the flood-fill background removal stays fast.
+    img.thumbnail((512, 512))
+    try:
+        base = keep_largest_component(strip_background(img))
+        base = crop_pad_resize(base)
+    except PackError:
+        raise
+    except Exception as exc:
+        raise PackError(f"pipeline failed: {exc}") from exc
+    return build_pack_from_state_images(
+        {state: base for state in STATE_TRANSFORMS}, out_dir, name, preprocess=False
+    )
 
 
 def delete_pack(avatars_root: Path, name: str) -> None:
