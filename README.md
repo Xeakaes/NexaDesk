@@ -6,7 +6,7 @@
 
 **NexaDesk** is an open-source desktop AI assistant for Linux and Windows: a local-first chat GUI, an animated pixel-art avatar mode, and built-in screen-control tools — all in one PySide6 app.
 
-Run local models with **Ollama**, or connect cloud providers (**Groq, GitHub Copilot, NVIDIA, Google, OpenAI-compatible**). Dark and light themes, Turkish and English UI, instant mode switching.
+Run local models with **Ollama**, or connect cloud providers (**Groq, GitHub Copilot *(experimental, unofficial API)*, NVIDIA, Google, OpenAI-compatible**). Dark and light themes, Turkish and English UI, instant mode switching.
 
 ## Why NexaDesk?
 
@@ -14,7 +14,7 @@ Run local models with **Ollama**, or connect cloud providers (**Groq, GitHub Cop
 - **Avatar mode** — pixel-art character with speech bubble and state animations (idle / thinking / working / speaking / error); the bubble lists your past sessions
 - **Screen control** — screenshot, OCR (bundled on-device engine), mouse/keyboard, window management; the server ships embedded, zero extra install
 - **Local-first** — your keys stay in `config/secrets.json` (never committed); history lives in a local SQLite DB
-- **Provider flexible** — Ollama (fully local), Groq, GitHub Copilot, NVIDIA NIM, Google Gemini, or any OpenAI-compatible endpoint
+- **Provider flexible** — Ollama (fully local), Groq, GitHub Copilot (experimental, unofficial API), NVIDIA NIM, Google Gemini, or any OpenAI-compatible endpoint
 - **TR / EN** — full bilingual UI with instant language switching
 
 ## Install
@@ -99,7 +99,7 @@ MIT — see [LICENSE](LICENSE).
 
 **NexaDesk**, Linux ve Windows için açık kaynaklı masaüstü AI asistanı: yerel çalışan sohbet arayüzü, animasyonlu piksel-art avatar modu ve yerleşik ekran kontrolü araçları — hepsi tek hafif PySide6 uygulamasında.
 
-Yerel modelleri **Ollama** ile çalıştırın veya bulut sağlayıcılarına bağlanın (**Groq, GitHub Copilot, NVIDIA, Google, OpenAI-uyumlu**). Karanlık/açık tema, Türkçe/İngilizce arayüz, anında mod geçişi.
+Yerel modelleri **Ollama** ile çalıştırın veya bulut sağlayıcılarına bağlanın (**Groq, GitHub Copilot *(deneysel, resmi olmayan API)*, NVIDIA, Google, OpenAI-uyumlu**). Karanlık/açık tema, Türkçe/İngilizce arayüz, anında mod geçişi.
 
 ## NexaDesk neden?
 
@@ -107,7 +107,7 @@ Yerel modelleri **Ollama** ile çalıştırın veya bulut sağlayıcılarına ba
 - **Avatar modu** — piksel-art karakter, konuşma balonu ve durum animasyonları (boşta / düşünüyor / çalışıyor / konuşuyor / hata); balon eski oturumlarınızı listeler
 - **Ekran kontrolü** — screenshot, OCR (paket içinde yerel motor), fare/klavye, pencere yönetimi; sunucu paketin içinde gömülü, ek kurulum yok
 - **Yerel öncelikli** — anahtarlarınız `config/secrets.json`'da kalır (asla commit edilmez); geçmiş yerel SQLite DB'de
-- **Sağlayıcı esnekliği** — Ollama (tamamen yerel), Groq, GitHub Copilot, NVIDIA NIM, Google Gemini veya OpenAI-uyumlu herhangi bir uç nokta
+- **Sağlayıcı esnekliği** — Ollama (tamamen yerel), Groq, GitHub Copilot (deneysel, resmi olmayan API), NVIDIA NIM, Google Gemini veya OpenAI-uyumlu herhangi bir uç nokta
 - **TR / EN** — tam iki dilli arayüz, anında dil değişimi
 
 ## Kurulum

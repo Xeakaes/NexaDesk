@@ -234,6 +234,10 @@ class SettingsWindow(QWidget):
         self._lbl_provider_model = QLabel(self)
         self._lbl_provider_key = QLabel(self)
         provider_form.addRow(self._lbl_provider_type, self._provider_type)
+        self._provider_warning = QLabel(self)
+        self._provider_warning.setWordWrap(True)
+        self._provider_warning.setVisible(False)
+        provider_form.addRow("", self._provider_warning)
         provider_form.addRow(self._lbl_provider_url, self._provider_url)
         provider_form.addRow(self._lbl_provider_model, model_row)
         provider_form.addRow(self._lbl_provider_key, self._provider_key)
@@ -358,6 +362,7 @@ class SettingsWindow(QWidget):
         self._notify_cb.setText(t("settings.notify"))
         self._close_to_tray_cb.setText(t("settings.close_to_tray"))
         self._lbl_provider_type.setText(t("settings.provider_type"))
+        self._provider_warning.setText(t("settings.github_unofficial"))
         self._lbl_provider_url.setText(t("settings.provider_url"))
         self._lbl_provider_model.setText(t("settings.provider_model"))
         self._btn_refresh_models.setText(t("settings.refresh_models"))
@@ -383,9 +388,11 @@ class SettingsWindow(QWidget):
 
     def _on_provider_type_changed(self) -> None:
         # Secret key name follows the provider; then refetch the catalog.
-        key_name = PROVIDER_KEY_SECRETS.get(self._provider_type.currentText(), "api_key")
+        ptype = self._provider_type.currentText()
+        key_name = PROVIDER_KEY_SECRETS.get(ptype, "api_key")
         secrets = self._read(self._secrets_path)
         self._provider_key.setText(str(secrets.get(key_name, "")))
+        self._provider_warning.setVisible(ptype == "github")
         self._fetch_models()
 
     def _fetch_models(self) -> None:

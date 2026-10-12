@@ -143,6 +143,10 @@ STRINGS: dict[str, dict[str, str]] = {
     "settings.provider_model": {"tr": "Model", "en": "Model"},
     "settings.refresh_models": {"tr": "Modelleri getir", "en": "Fetch models"},
     "settings.provider_key": {"tr": "API anahtarı", "en": "API key"},
+    "settings.github_unofficial": {
+        "tr": "Deneysel · resmi olmayan Copilot API'si — hesabınız kısıtlanabilir.",
+        "en": "Experimental · unofficial Copilot API — your account may be restricted.",
+    },
     "settings.sc_host": {"tr": "SC host", "en": "SC host"},
     "settings.sc_port": {"tr": "SC port", "en": "SC port"},
     "settings.sc_key": {"tr": "SC anahtarı", "en": "SC key"},

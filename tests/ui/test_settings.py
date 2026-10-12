@@ -78,6 +78,48 @@ def test_settings_host_accepts_loopback_aliases(tmp_path):
     win.deleteLater()
 
 
+def test_github_provider_shows_experimental_warning(tmp_path):
+    # The GitHub provider uses an unofficial Copilot endpoint; selecting it
+    # must surface a visible "experimental, unofficial API" warning so the
+    # account-restriction risk is the user's informed choice.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    assert win._provider_warning.isHidden()  # default provider is ollama
+    win._provider_type.setCurrentText("github")
+    assert not win._provider_warning.isHidden()
+    low = win._provider_warning.text().lower()
+    assert "unofficial" in low or "resmi olmayan" in low
+    win._provider_type.setCurrentText("ollama")
+    assert win._provider_warning.isHidden()
+    win.hide()
+    win.deleteLater()
+
+
+def test_readme_labels_github_as_unofficial():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    # Every mention of the GitHub provider in the README must carry the
+    # unofficial/experimental caveat.
+    lines = [ln for ln in readme.splitlines() if "GitHub Copilot" in ln]
+    assert lines, "README must mention GitHub Copilot somewhere"
+    for ln in lines:
+        low = ln.lower()
+        assert (
+            "experimental" in low
+            or "unofficial" in low
+            or "deneysel" in low
+            or "resmi olmayan" in low
+        ), f"README line must label GitHub Copilot as experimental/unofficial: {ln}"
+
+
 def test_settings_persona_roundtrip(tmp_path):
     from PySide6.QtWidgets import QApplication
 
