@@ -48,7 +48,8 @@ class AvatarWindow(QWidget):
         self._context_menu_factory = context_menu_factory
         self._active_menu: QMenu | None = None  # B22: strong ref while open
         self._avatar_dir = avatar_dir
-        self._states: dict[str, StateAnim] = load_manifest(avatar_dir / "manifest.json")
+        self._manifest = load_manifest(avatar_dir / "manifest.json")
+        self._states: dict[str, StateAnim] = self._manifest.states
         self._spinner_frames = load_spinner_frames(avatar_dir)
         self._state: AvatarState = "idle"
         self._frame_index = 0
