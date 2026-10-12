@@ -1,0 +1,17 @@
+NexaDesk
+Copyright (c) 2026 Xeakaes
+License: MIT (see LICENSE)
+
+This product bundles the following third-party components:
+
+PySide6
+  License: LGPL-3.0-only
+  https://doc.qt.io/qtforpython/
+
+rapidocr_onnxruntime
+  License: Apache-2.0
+  https://github.com/RapidAI/RapidOCR
+
+onnxruntime
+  License: MIT
+  https://github.com/microsoft/onnxruntime

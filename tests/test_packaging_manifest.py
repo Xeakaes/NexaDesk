@@ -126,3 +126,28 @@ def test_nfpm_declares_qt_runtime_depends():
         "libx11-xcb1",
     ):
         assert pkg in text, f"deb depends must list {pkg}"
+
+
+def test_notice_lists_third_party_licenses():
+    # B31: the frozen bundle redistributes PySide6 (LGPL-3.0-only),
+    # rapidocr_onnxruntime (Apache-2.0) and onnxruntime (MIT) — the shipped
+    # artifacts must carry attribution notices for them.
+    text = (ROOT / "NOTICE").read_text()
+    for needle in ("PySide6", "LGPL", "rapidocr", "Apache-2.0", "onnxruntime", "MIT"):
+        assert needle in text, f"NOTICE must mention {needle}"
+
+
+def test_notice_ships_with_linux_artifacts():
+    # build_linux.sh copies NOTICE into dist/NexaDesk before tar+deb, so both
+    # artifacts carry it (deb via the /opt/NexaDesk tree contents).
+    text = (ROOT / "packaging" / "build_linux.sh").read_text()
+    assert "NOTICE" in text
+
+
+def test_windows_build_ships_notice_and_checks_ocr():
+    text = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+    assert "NOTICE" in text, "windows zip must include the NOTICE file"
+    assert "rapidocr_onnxruntime" in text, (
+        "windows build must verify the OCR engine is bundled (port of the "
+        "linux build_linux.sh guard)"
+    )

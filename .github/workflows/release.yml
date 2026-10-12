@@ -92,10 +92,15 @@ jobs:
         shell: bash
         run: |
           test -f dist/NexaDesk/NexaDesk.exe
+          # B31: port of the linux build's OCR presence guard.
+          test -d dist/NexaDesk/_internal/rapidocr_onnxruntime
+          test -d dist/NexaDesk/_internal/onnxruntime
           env -u APP_VERSION dist/NexaDesk/NexaDesk.exe --version | grep -Fx "$APP_VERSION"
       - name: Package zip
         shell: pwsh
-        run:           Compress-Archive -Path dist/NexaDesk -DestinationPath "dist/NexaDesk_${env:APP_VERSION}_windows_x64.zip"
+        run: |
+          Copy-Item NOTICE dist/NexaDesk/NOTICE
+          Compress-Archive -Path dist/NexaDesk -DestinationPath "dist/NexaDesk_${env:APP_VERSION}_windows_x64.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-zip

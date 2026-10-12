@@ -19,6 +19,10 @@ for pkg in rapidocr_onnxruntime onnxruntime; do
   fi
 done
 
+# B31: attribution notices (PySide6 LGPL, RapidOCR Apache-2.0, ONNX MIT)
+# must ship inside both artifacts — deb picks it up via the tree contents.
+cp NOTICE dist/NexaDesk/NOTICE
+
 tar -czf "dist/NexaDesk_${APP_VERSION}_linux_amd64.tar.gz" -C dist NexaDesk
 NFPM="$(command -v nfpm || echo "$HOME/.local/bin/nfpm")"
 "$NFPM" package --config packaging/nfpm.yaml --packager deb --target "dist/NexaDesk_${APP_VERSION}_amd64.deb"
