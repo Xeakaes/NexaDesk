@@ -40,6 +40,20 @@ class SessionStore:
     def messages(self, session_id: str) -> list[ChatMessage]:
         return list(self._messages.get(session_id, ()))
 
+    def seed_session(self, session_id: str, pairs: list[tuple[str, str]]) -> None:
+        """Fill an unknown session from persisted (role, text) history pairs.
+
+        Called when the user reopens an old chat (possibly after a restart):
+        the in-memory store is empty for that session, so the model would
+        otherwise see only the newest message. A session the runtime already
+        knows keeps its richer transcript (tool_calls etc.) untouched.
+        """
+        if session_id in self._messages:
+            return
+        self._messages[session_id] = [
+            ChatMessage(role=role, content=content) for role, content in pairs
+        ]
+
     def trim_images(self, session_id: str, keep: int) -> None:
         """Drop images from all but the most recent `keep` image-bearing messages.
 

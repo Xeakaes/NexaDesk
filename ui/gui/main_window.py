@@ -50,8 +50,8 @@ class _UiSignals(QObject):
     assistant = Signal(str)
     tool = Signal(str, str, bool)
     finished = Signal()
-    error = Signal(str)
-    cancelled = Signal()
+    error = Signal(str, str)  # message, session_id
+    cancelled = Signal(str)  # session_id
 
 
 def _build_delete_dialog(parent, title: str) -> QDialog:
@@ -102,6 +102,7 @@ class ChatWindow(QMainWindow):
         self._settings_path = settings_path or SETTINGS_PATH
         self._secrets_path = secrets_path or SECRETS_PATH
         self._session_id: str | None = None
+        self._active_task_session: str | None = None
         self._messages: list[dict] = []
         self._busy = False
         self._sidebar_expanded = True
@@ -476,6 +477,8 @@ class ChatWindow(QMainWindow):
         if was_active and self._busy and self._runtime is not None:
             self._runtime.cancel_active_task()
             self._set_busy(False)
+        if self._active_task_session == session_id:
+            self._active_task_session = None
         self._history.delete_session(session_id)
         if was_active:
             self._session_id = None
@@ -488,8 +491,15 @@ class ChatWindow(QMainWindow):
             return
         self._session_id = session_id
         self._clear_messages()
+        seed_pairs: list[tuple[str, str]] = []
         for role, content, tool_name in self._history.messages(session_id):
             self._append(role, content)
+            if role in ("user", "assistant"):
+                seed_pairs.append((role, content))
+        # Give the runtime the text history so the model sees prior turns
+        # (B8: without this, a reopened chat had no model-side context).
+        if self._runtime is not None and hasattr(self._runtime, "seed_session"):
+            self._runtime.seed_session(session_id, seed_pairs)
 
     # --- chat ---
 
@@ -538,6 +548,7 @@ class ChatWindow(QMainWindow):
         self._clear_attachments()
         # snapshot: switching chats mid-task must not rebind the running task
         session_id = self._session_id
+        self._active_task_session = session_id
         threading.Thread(
             target=self._run_agent, args=(prompt, images, session_id), daemon=True
         ).start()
@@ -547,7 +558,18 @@ class ChatWindow(QMainWindow):
             tid = self._runtime.begin_task(session_id, text, images=images or None)
             self._runtime.run_task(tid)
         except Exception as exc:
-            self._signals.error.emit(str(exc))
+            self._signals.error.emit(str(exc), session_id)
+
+    def _is_active_task_session(self, session_id: str | None) -> bool:
+        # Late events belong to the running task's session, not the chat the
+        # user is currently looking at (B9). Fallback keeps the pre-B9 filter
+        # for flows that never went through _send (tests, direct calls).
+        target = (
+            self._active_task_session
+            if self._active_task_session is not None
+            else self._session_id
+        )
+        return session_id == target
 
     # --- attachments ---
 
@@ -609,24 +631,33 @@ class ChatWindow(QMainWindow):
             self._activity.setText("")
         elif name == "assistant_message":
             text = payload.get("text", "")
-            if text and event.session_id == self._session_id:
-                self._signals.assistant.emit(text)
+            if text:
+                # Persist only for the running task's session; a chat switch
+                # must not lose the reply (B9), and a deleted session must not
+                # get a late write (FK violation).
+                if self._is_active_task_session(event.session_id):
+                    self._history.append(event.session_id, "assistant", text)
+                if event.session_id == self._session_id:
+                    self._signals.assistant.emit(text)
         elif name == "agent_finished":
-            if event.session_id == self._session_id:
+            if self._is_active_task_session(event.session_id):
+                self._active_task_session = None
                 self._signals.finished.emit()
         elif name == "agent_error":
             code = payload.get("error_code", "")
             msg = payload.get("message") or code
-            if event.session_id == self._session_id:
-                self._signals.error.emit(f"({code}): {msg}")
+            if self._is_active_task_session(event.session_id):
+                self._active_task_session = None
+                self._signals.error.emit(f"({code}): {msg}", event.session_id)
         elif name == "provider_notice":
             if payload.get("code") == "vision_disabled":
                 self._signals.tool.emit(
                     "tool", i18n.t("chat.vision_disabled"), True
                 )
         elif name == "agent_cancelled":
-            if event.session_id == self._session_id:
-                self._signals.cancelled.emit()
+            if self._is_active_task_session(event.session_id):
+                self._active_task_session = None
+                self._signals.cancelled.emit(event.session_id)
         elif name == "confirmation_requested":
             self._activity.setText(
                 i18n.t("confirmation.pending") + f" {payload.get('tool_name', '?')}"
@@ -646,13 +677,14 @@ class ChatWindow(QMainWindow):
             self._activity.setText("")
 
     def _on_assistant(self, text: str) -> None:
+        # Persistence already happened in _on_event against the task session.
         self._append("assistant", text)
-        self._history.append(self._session_id, "assistant", text)
 
     def _on_tool(self, role: str, text: str, _persist: bool) -> None:
         self._append(role, text)
 
     def _on_finished(self) -> None:
+        self._active_task_session = None
         self._set_busy(False)
         self._activity.setText("")
         self._reload_sessions()
@@ -661,12 +693,15 @@ class ChatWindow(QMainWindow):
                 i18n.t("notify.task_done_title"), i18n.t("notify.task_done_body")
             )
 
-    def _on_error(self, msg: str) -> None:
+    def _on_error(self, msg: str, session_id: str | None) -> None:
+        self._active_task_session = None
         self._set_busy(False)
         self._activity.setText("")
         line = f"{i18n.t('chat.error_prefix')}: {msg}"
-        self._append("assistant", line)
-        self._history.append(self._session_id, "assistant", line)
+        if session_id is not None:
+            self._history.append(session_id, "assistant", line)
+        if session_id == self._session_id:
+            self._append("assistant", line)
         self._reload_sessions()
         self._maybe_notify(i18n.t("notify.task_error_title"), msg)
 
@@ -680,11 +715,15 @@ class ChatWindow(QMainWindow):
             self._notifier = Notifier(tray=self._tray)
         self._notifier.notify(title, body)
 
-    def _on_cancelled(self) -> None:
+    def _on_cancelled(self, session_id: str | None) -> None:
+        self._active_task_session = None
         self._set_busy(False)
         self._activity.setText("")
-        self._append("assistant", i18n.t("chat.cancelled"))
-        self._history.append(self._session_id, "assistant", i18n.t("chat.cancelled"))
+        line = i18n.t("chat.cancelled")
+        if session_id is not None:
+            self._history.append(session_id, "assistant", line)
+        if session_id == self._session_id:
+            self._append("assistant", line)
 
     def _cancel(self) -> None:
         if self._runtime is not None:

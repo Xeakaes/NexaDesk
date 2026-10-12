@@ -44,7 +44,11 @@ def _make_app(tmp_path, monkeypatch, runtime=None):
 
     app = QApplication.instance() or QApplication([])
     rt = runtime or FakeRuntime()
-    monkeypatch.setattr(aa, "build_runtime", lambda: (rt, FakeBus(), "sess"))
+    from core.session.store import SessionStore
+
+    monkeypatch.setattr(
+        aa, "build_runtime", lambda: (rt, FakeBus(), SessionStore())
+    )
     monkeypatch.setattr(
         aa,
         "load_settings",

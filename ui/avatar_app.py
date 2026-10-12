@@ -209,6 +209,7 @@ class App:
     def _on_session_chosen(self, sid: str) -> None:
         self._sid = sid
         lines = []
+        seed_pairs: list[tuple[str, str]] = []
         for role, content, tool_name in self._history.messages(sid):
             if role == "tool":
                 lines.append(f"{tool_name or 'tool'}: {content}")
@@ -219,6 +220,10 @@ class App:
                     else i18n.t("chat.assistant_prefix")
                 )
                 lines.append(f"{prefix}: {content}")
+                if role in ("user", "assistant"):
+                    seed_pairs.append((role, content))
+        # Rehydrate the model-side context for reopened chats (B8).
+        self.session.seed_session(sid, seed_pairs)
         self.bubble.set_transcript("\n".join(lines))
 
     def _run_agent(self, text: str, images: list | None = None) -> None:

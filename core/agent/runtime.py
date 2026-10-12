@@ -124,6 +124,10 @@ class AgentRuntime:
         """Hot-swap the optional system prompt (applies to the next task)."""
         self._config.persona = persona
 
+    def seed_session(self, session_id: str, pairs: list[tuple[str, str]]) -> None:
+        """Rehydrate an reopened chat from persisted history (see SessionStore)."""
+        self._session.seed_session(session_id, pairs)
+
     def begin_task(
         self, session_id: str, user_text: str, images: list[str] | None = None
     ) -> str:

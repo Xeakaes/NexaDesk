@@ -18,12 +18,34 @@ def _make_window(tmp_path):
 class FakeRuntime:
     def __init__(self, win):
         self._win = win
+        self.seeds = []
 
     def begin_task(self, sid, text, images=None):
         from ui.gui.main_window import _UiSignals  # noqa: F401
 
         self._win._signals.assistant.emit("merhaba")
         self._win._signals.finished.emit()
+        return "tid"
+
+    def run_task(self, tid):
+        pass
+
+    def cancel_active_task(self):
+        pass
+
+    def seed_session(self, sid, pairs):
+        self.seeds.append((sid, pairs))
+
+
+class SilentRuntime:
+    """Runtime that starts a task but never finishes it (for mid-task scenarios)."""
+
+    def __init__(self, win):
+        self._win = win
+        self.started = []
+
+    def begin_task(self, sid, text, images=None):
+        self.started.append((sid, text))
         return "tid"
 
     def run_task(self, tid):
@@ -77,6 +99,22 @@ def test_history_click_loads_session(tmp_path):
     win._reload_sessions()
     win._load_session(sid, force=True)
     assert win._messages[0]["text"] == "eski mesaj"
+    win.hide()
+
+
+def test_load_session_seeds_runtime_context(tmp_path):
+    # B8: opening a session must hand the runtime its text history so the
+    # model sees prior turns, not just the new message.
+    app, win = _make_window(tmp_path)
+    win._runtime = FakeRuntime(win)
+    sid = win._history.create_session("sohbet")
+    win._history.append(sid, "user", "eski soru")
+    win._history.append(sid, "assistant", "eski cevap")
+    win._history.append(sid, "tool", "ekran alındı", tool_name="screenshot")
+    win._load_session(sid, force=True)
+    assert win._runtime.seeds == [
+        (sid, [("user", "eski soru"), ("assistant", "eski cevap")])
+    ]
     win.hide()
 
 
@@ -418,4 +456,91 @@ def test_chat_messages_are_text_selectable(tmp_path):
         flags = lbl.textInteractionFlags()
         assert flags & Qt.TextInteractionFlag.TextSelectableByMouse
         assert flags & Qt.TextInteractionFlag.TextSelectableByKeyboard
+    win.hide()
+
+
+def test_switching_chat_mid_task_does_not_busy_lock(tmp_path):
+    """B9: a background task finishing must release the busy state even when
+    the user has switched to another chat."""
+    from types import SimpleNamespace
+
+    app, win = _make_window(tmp_path)
+    win._runtime = SilentRuntime(win)
+    win._chat_input.setPlainText("selam")
+    win._send()
+    sid_a = win._session_id
+    assert win._busy is True
+    win.new_chat()  # user switches away mid-task
+    ev = SimpleNamespace(
+        name="agent_finished", session_id=sid_a, task_id="t1", payload={}
+    )
+    win._on_event(ev)
+    assert win._busy is False
+    assert win._send_btn.isEnabled()
+    win.hide()
+
+
+def test_late_assistant_reply_lands_in_task_session(tmp_path):
+    """B9: the reply of a background task must be persisted to its own session
+    and must not leak into the currently visible chat."""
+    from types import SimpleNamespace
+
+    app, win = _make_window(tmp_path)
+    win._runtime = SilentRuntime(win)
+    win._chat_input.setPlainText("selam")
+    win._send()
+    sid_a = win._session_id
+    win.new_chat()
+    ev = SimpleNamespace(
+        name="assistant_message",
+        session_id=sid_a,
+        task_id="t1",
+        payload={"text": "gorev yaniti"},
+    )
+    win._on_event(ev)
+    assert ("assistant", "gorev yaniti", None) in win._history.messages(sid_a)
+    assert all(m["text"] != "gorev yaniti" for m in win._messages)
+    win.hide()
+
+
+def test_error_after_new_chat_does_not_integrity_error(tmp_path):
+    """B35: the error path must persist to the task's session, never to a
+    None session id (sqlite FK violation)."""
+    from types import SimpleNamespace
+
+    app, win = _make_window(tmp_path)
+    win._runtime = SilentRuntime(win)
+    win._chat_input.setPlainText("selam")
+    win._send()
+    sid_a = win._session_id
+    win.new_chat()  # _session_id is None now
+    ev = SimpleNamespace(
+        name="agent_error",
+        session_id=sid_a,
+        task_id="t1",
+        payload={"error_code": "provider_error", "message": "patlak"},
+    )
+    win._on_event(ev)  # must not raise sqlite3.IntegrityError
+    assert win._busy is False
+    assert any("patlak" in m[1] for m in win._history.messages(sid_a))
+    win.hide()
+
+
+def test_cancelled_after_switch_persists_to_task_session(tmp_path):
+    """B9: a cancel that lands while another chat is visible still records the
+    cancelled marker in the task's own session and releases busy."""
+    from types import SimpleNamespace
+
+    app, win = _make_window(tmp_path)
+    win._runtime = SilentRuntime(win)
+    win._chat_input.setPlainText("selam")
+    win._send()
+    sid_a = win._session_id
+    win.new_chat()
+    ev = SimpleNamespace(
+        name="agent_cancelled", session_id=sid_a, task_id="t1", payload={}
+    )
+    win._on_event(ev)
+    assert win._busy is False
+    assert any("iptal" in m[1].lower() for m in win._history.messages(sid_a))
     win.hide()

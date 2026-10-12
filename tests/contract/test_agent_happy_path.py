@@ -33,6 +33,41 @@ def test_plain_text_no_tools():
     assert tool.calls == []
 
 
+def test_restored_session_sends_history_to_provider():
+    # Bug B8: reopening an old chat after a restart showed the transcript but
+    # the model only saw the new message. restore_session must reseed the
+    # in-memory store so the provider request carries the old turns.
+    provider = FakeProvider([ProviderResponse(text="Adın Ali.", tool_calls=[])])
+    rt, _ = _runtime(provider)
+    rt.seed_session(
+        "s1",
+        [("user", "benim adım Ali"), ("assistant", "Merhaba Ali!")],
+    )
+    rt.start_task("s1", "adım neydi?")
+    sent = provider.calls[0].messages
+    contents = [m.content for m in sent if m.role in ("user", "assistant")]
+    assert "benim adım Ali" in contents
+    assert "Merhaba Ali!" in contents
+    assert contents[-1] == "adım neydi?"
+
+
+def test_seed_session_does_not_clobber_live_session():
+    # A session the runtime already knows (same app run) keeps its richer
+    # in-memory transcript — including tool_calls — and is not overwritten
+    # by the flatter history-derived pairs.
+    provider = FakeProvider(
+        [ProviderResponse(text="a", tool_calls=[]), ProviderResponse(text="b", tool_calls=[])]
+    )
+    rt, _ = _runtime(provider)
+    rt.start_task("s1", "ilk mesaj")
+    rt.seed_session("s1", [("user", "eski flat")])
+    rt.start_task("s1", "ikinci mesaj")
+    sent = provider.calls[1].messages
+    contents = [m.content for m in sent if m.role == "user"]
+    assert "ilk mesaj" in contents  # live transcript preserved
+    assert "eski flat" not in contents
+
+
 def test_tool_call_result_fed_back_then_final():
     tool = FakeTool("echo", [ToolResult(ok=True, data={"v": 1})])
     provider = FakeProvider([

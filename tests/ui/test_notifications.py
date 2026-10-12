@@ -67,7 +67,7 @@ def test_error_notifies_even_when_active(tmp_path):
     fake = FakeTray()
     win._notifier = Notifier(tray=fake)
     win.isActiveWindow = lambda: True
-    win._on_error("boom")
+    win._on_error("boom", None)
     assert len(fake.messages) == 1
     win.close()
 
@@ -85,6 +85,6 @@ def test_notifications_respect_disable_toggle(tmp_path):
     win.isActiveWindow = lambda: False
     win._session_id = store.create_session("t")
     win._on_finished()
-    win._on_error("boom")
+    win._on_error("boom", win._session_id)
     assert fake.messages == []
     win.close()
