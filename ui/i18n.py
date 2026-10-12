@@ -70,6 +70,13 @@ STRINGS: dict[str, dict[str, str]] = {
     "update.banner": {"tr": "Yeni sürüm mevcut: {tag}", "en": "New version available: {tag}"},
     "update.download": {"tr": "İndir", "en": "Download"},
     "update.dismiss": {"tr": "Kapat", "en": "Dismiss"},
+    "notify.task_done_title": {"tr": "NexaDesk", "en": "NexaDesk"},
+    "notify.task_done_body": {"tr": "Görev tamamlandı.", "en": "Task finished."},
+    "notify.task_error_title": {"tr": "NexaDesk — hata", "en": "NexaDesk — error"},
+    "settings.notify": {
+        "tr": "Görev bitince masaüstü bildirimi",
+        "en": "Desktop notification when a task finishes",
+    },
     "settings.pack_title": {"tr": "Özel karakter", "en": "Custom character"},
     "settings.pack_pick": {"tr": "Fotoğraf seç…", "en": "Choose photo…"},
     "settings.pack_name": {"tr": "Paket adı", "en": "Pack name"},

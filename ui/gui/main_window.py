@@ -105,6 +105,7 @@ class ChatWindow(QMainWindow):
         self._messages: list[dict] = []
         self._busy = False
         self._sidebar_expanded = True
+        self._notifier = None
 
         # --- sidebar ---
         self._new_chat_btn = QPushButton(self)
@@ -548,6 +549,10 @@ class ChatWindow(QMainWindow):
         self._set_busy(False)
         self._activity.setText("")
         self._reload_sessions()
+        if not self.isActiveWindow():
+            self._maybe_notify(
+                i18n.t("notify.task_done_title"), i18n.t("notify.task_done_body")
+            )
 
     def _on_error(self, msg: str) -> None:
         self._set_busy(False)
@@ -556,6 +561,16 @@ class ChatWindow(QMainWindow):
         self._append("assistant", line)
         self._history.append(self._session_id, "assistant", line)
         self._reload_sessions()
+        self._maybe_notify(i18n.t("notify.task_error_title"), msg)
+
+    def _maybe_notify(self, title: str, body: str) -> None:
+        from ui.notifications import Notifier, notifications_enabled
+
+        if not notifications_enabled(self._settings_path):
+            return
+        if self._notifier is None:
+            self._notifier = Notifier()
+        self._notifier.notify(title, body)
 
     def _on_cancelled(self) -> None:
         self._set_busy(False)
