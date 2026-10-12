@@ -136,12 +136,13 @@ class App:
             self.settings_win.raise_()
 
     def _on_settings_saved(self) -> None:
-        # B29: screen_control changes must reach the live tools on every
-        # save — independent of the first-run provider setup flow.
+        # B29 + B24: screen_control and provider changes must reach the live
+        # runtime on every save — not only during first-run setup.
         apply_screen_control(self.runtime, self.settings_path, self.secrets_path)
-        if not self._needs_provider_setup:
-            return
-        if reload_provider(self.runtime, self.settings_path, self.secrets_path):
+        configured = reload_provider(
+            self.runtime, self.settings_path, self.secrets_path
+        )
+        if configured and self._needs_provider_setup:
             self._needs_provider_setup = False
             self.bubble.append_message("tool", i18n.t("setup.provider_ready"))
 

@@ -580,3 +580,41 @@ def test_on_settings_saved_applies_screen_control(tmp_path):
     win._on_settings_saved()
     assert rt.registry.get("screenshot") is not None
     win.hide()
+
+
+def test_on_settings_saved_swaps_provider(tmp_path):
+    # B24: a provider/model change saved in Settings must reach the live
+    # runtime — restarting the app to switch models is the bug.
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from core.agent.config import AgentConfig
+    from core.agent.runtime import AgentRuntime
+    from core.events import EventBus
+    from core.session.store import SessionStore
+    from core.tools.registry import PermissionPolicy, ToolRegistry
+    from tests.fakes import FakeProvider
+    from ui.gui.main_window import ChatWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({
+        "provider": {"type": "groq", "model": "m1"},
+        "agent": {"persona": "x"},
+    }))
+    secrets = tmp_path / "secrets.json"
+    secrets.write_text(json.dumps({"groq_api_key": "gsk_test"}))
+    rt = AgentRuntime(
+        FakeProvider([]), ToolRegistry(), PermissionPolicy({"*": "allow"}),
+        EventBus(), SessionStore(), AgentConfig(),
+    )
+    win = ChatWindow(
+        runtime=rt, history=HistoryStore(tmp_path / "h.db"),
+        settings_path=settings, secrets_path=secrets,
+    )
+    win._on_settings_saved()
+    assert not isinstance(rt._provider, FakeProvider)
+    assert rt._provider.provider_key == "groq"
+    assert rt._provider.model == "m1"
+    win.hide()

@@ -148,6 +148,23 @@ def test_avatar_app_settings_saved_applies_screen_control(tmp_path, monkeypatch)
     ui.close()
 
 
+def test_avatar_app_settings_saved_applies_provider_change(tmp_path, monkeypatch):
+    # B24: once the app is configured, later saves (model/type change) must
+    # hot-swap the provider too — not only the first-run setup transition.
+    app, ui, settings, secrets = _make_avatar_app(tmp_path, monkeypatch)
+    secrets.write_text(json.dumps({"groq_api_key": "gsk_test"}))
+    ui._on_settings_saved()
+    assert ui._needs_provider_setup is False
+    first = ui.runtime._provider
+    cfg = json.loads(settings.read_text())
+    cfg["provider"]["model"] = "second-model"
+    settings.write_text(json.dumps(cfg))
+    ui._on_settings_saved()
+    assert ui.runtime._provider is not first
+    assert ui.runtime._provider.model == "second-model"
+    ui.close()
+
+
 def test_guide_dialog_opens_provider_settings(tmp_path, monkeypatch):
     app, ui, _settings, _secrets = _make_avatar_app(tmp_path, monkeypatch)
 
