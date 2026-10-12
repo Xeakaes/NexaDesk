@@ -309,3 +309,15 @@ def test_avatar_main_handles_config_error(monkeypatch):
     assert aa.main() == 1
     assert len(shown) == 1
     assert "corrupt" in str(shown[0])
+
+
+def test_avatar_app_settings_saved_applies_persona(tmp_path, monkeypatch):
+    # B28: persona edits must hot-apply in avatar mode too (mirror of the
+    # main window's _on_settings_saved).
+    app, ui, settings, _secrets = _make_avatar_app(tmp_path, monkeypatch)
+    cfg = json.loads(settings.read_text())
+    cfg.setdefault("agent", {})["persona"] = "You are a pirate."
+    settings.write_text(json.dumps(cfg))
+    ui._on_settings_saved()
+    assert ui.runtime._config.persona == "You are a pirate."
+    ui.close()

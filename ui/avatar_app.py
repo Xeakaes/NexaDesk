@@ -137,12 +137,15 @@ class App:
             self.settings_win.raise_()
 
     def _on_settings_saved(self) -> None:
-        # B29 + B24: screen_control and provider changes must reach the live
-        # runtime on every save — not only during first-run setup.
+        # B29 + B24 + B28: screen_control, provider and persona changes must
+        # reach the live runtime on every save — not only during first-run
+        # setup. Mirrors the main window's handler.
         apply_screen_control(self.runtime, self.settings_path, self.secrets_path)
         configured = reload_provider(
             self.runtime, self.settings_path, self.secrets_path
         )
+        settings = load_settings(self.settings_path)
+        self.runtime.set_persona(str((settings.get("agent") or {}).get("persona", "")))
         if configured and self._needs_provider_setup:
             self._needs_provider_setup = False
             self.bubble.append_message("tool", i18n.t("setup.provider_ready"))
