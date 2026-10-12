@@ -85,6 +85,8 @@ STRINGS: dict[str, dict[str, str]] = {
     "tray.avatar": {"tr": "Avatarı aç", "en": "Open avatar"},
     "tray.settings": {"tr": "Ayarlar", "en": "Settings"},
     "tray.quit": {"tr": "Çıkış", "en": "Quit"},
+    "chat.attach": {"tr": "Dosya ekle", "en": "Attach file"},
+    "chat.attachment": {"tr": "ek", "en": "attachment"},
     "settings.pack_title": {"tr": "Özel karakter", "en": "Custom character"},
     "settings.pack_pick": {"tr": "Fotoğraf seç…", "en": "Choose photo…"},
     "settings.pack_name": {"tr": "Paket adı", "en": "Pack name"},

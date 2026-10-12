@@ -172,9 +172,19 @@ class ChatWindow(QMainWindow):
         self._cancel_btn = QPushButton(self)
         self._cancel_btn.setObjectName("outline")
         self._cancel_btn.clicked.connect(self._cancel)
+        self._attach_btn = QPushButton(self)
+        self._attach_btn.setObjectName("outline")
+        self._attach_btn.clicked.connect(self._pick_attachments)
+        self._pending_attachments: list = []
+        self._chip_bar = QWidget(self)
+        self._chip_bar.hide()
+        self._chip_layout = QHBoxLayout(self._chip_bar)
+        self._chip_layout.setContentsMargins(0, 0, 0, 0)
+        self._chip_layout.addStretch(1)
 
         bottom = QHBoxLayout()
         bottom.addWidget(self._chat_input, 1)
+        bottom.addWidget(self._attach_btn)
         bottom.addWidget(self._send_btn)
         bottom.addWidget(self._cancel_btn)
 
@@ -198,6 +208,7 @@ class ChatWindow(QMainWindow):
         right.addWidget(self._update_banner)
         right.addWidget(self._scroll, 1)
         right.addWidget(self._activity)
+        right.addWidget(self._chip_bar)
         right.addLayout(bottom)
         right_w = QWidget(self)
         right_w.setLayout(right)
@@ -261,6 +272,7 @@ class ChatWindow(QMainWindow):
         self._chat_input.setPlaceholderText(t("chat.input_placeholder"))
         self._send_btn.setText(t("chat.send"))
         self._cancel_btn.setText(t("chat.cancel"))
+        self._attach_btn.setText(t("chat.attach"))
         self._empty_title.setText(t("chat.empty_title"))
         self._empty_hint.setText(t("chat.empty_hint"))
         self._update_download_btn.setText(t("update.download"))
@@ -507,27 +519,78 @@ class ChatWindow(QMainWindow):
         if self._busy:
             return
         text = self._chat_input.toPlainText().strip()
-        if not text or self._runtime is None:
+        attachments = list(self._pending_attachments)
+        if (not text and not attachments) or self._runtime is None:
             return
         self._chat_input.clear()
-        self._append("user", text)
+        from ui.attachments import build_user_payload
+
+        prompt, images = build_user_payload(text, attachments)
+        display = text
+        for att in attachments:
+            display = f"{display}\n[{i18n.t('chat.attachment')}: {att.name}]".rstrip()
+        self._append("user", display or i18n.t("chat.attachment"))
         if self._session_id is None:
             self._session_id = self._history.create_session()
-        self._history.append(self._session_id, "user", text)
+        self._history.append(self._session_id, "user", display or i18n.t("chat.attachment"))
         self._reload_sessions()
         self._set_busy(True)
+        self._clear_attachments()
         # snapshot: switching chats mid-task must not rebind the running task
         session_id = self._session_id
         threading.Thread(
-            target=self._run_agent, args=(text, session_id), daemon=True
+            target=self._run_agent, args=(prompt, images, session_id), daemon=True
         ).start()
 
-    def _run_agent(self, text: str, session_id: str) -> None:
+    def _run_agent(self, text: str, images: list, session_id: str) -> None:
         try:
-            tid = self._runtime.begin_task(session_id, text)
+            tid = self._runtime.begin_task(session_id, text, images=images or None)
             self._runtime.run_task(tid)
         except Exception as exc:
             self._signals.error.emit(str(exc))
+
+    # --- attachments ---
+
+    def _pick_attachments(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        from ui.attachments import AttachmentError, load_attachment
+
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            i18n.t("chat.attach"),
+            str(Path.home()),
+            "Images (*.png *.jpg *.jpeg *.webp);;Text (*.txt *.md *.py *.json *.csv *.log);;All (*)",
+        )
+        for raw in paths:
+            try:
+                att = load_attachment(Path(raw))
+            except (AttachmentError, OSError):
+                continue
+            self._pending_attachments.append(att)
+        self._refresh_chips()
+
+    def _clear_attachments(self) -> None:
+        self._pending_attachments.clear()
+        self._refresh_chips()
+
+    def _refresh_chips(self) -> None:
+        while self._chip_layout.count() > 1:  # keep the trailing stretch
+            item = self._chip_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        for att in list(self._pending_attachments):
+            chip = QPushButton(f"{att.name} ×", self._chip_bar)
+            chip.setObjectName("outline")
+            chip.clicked.connect(lambda _=False, a=att: self._remove_attachment(a))
+            self._chip_layout.insertWidget(self._chip_layout.count() - 1, chip)
+        self._chip_bar.setVisible(bool(self._pending_attachments))
+
+    def _remove_attachment(self, att) -> None:
+        if att in self._pending_attachments:
+            self._pending_attachments.remove(att)
+        self._refresh_chips()
 
     def _on_event(self, event) -> None:
         name = event.name

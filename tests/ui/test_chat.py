@@ -19,7 +19,7 @@ class FakeRuntime:
     def __init__(self, win):
         self._win = win
 
-    def begin_task(self, sid, text):
+    def begin_task(self, sid, text, images=None):
         from ui.gui.main_window import _UiSignals  # noqa: F401
 
         self._win._signals.assistant.emit("merhaba")
@@ -190,7 +190,7 @@ def test_send_session_id_snapshotted_at_send_time(tmp_path, monkeypatch):
     started = []
 
     class RT:
-        def begin_task(self, sid, text):
+        def begin_task(self, sid, text, images=None):
             started.append(sid)
             return "tid"
 

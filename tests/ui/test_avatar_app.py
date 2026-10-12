@@ -22,7 +22,7 @@ class FakeRuntime:
         self._gate: threading.Event | None = None
         self._resume: threading.Event | None = None
 
-    def begin_task(self, sid, text):
+    def begin_task(self, sid, text, images=None):
         self.begin_calls.append((sid, text))
         return "tid"
 

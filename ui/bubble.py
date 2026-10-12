@@ -25,7 +25,7 @@ from ui.i18n import i18n
 class BubbleWindow(QFrame):
     def __init__(
         self,
-        on_send: Callable[[str], None],
+        on_send: Callable[..., None],
         on_cancel: Callable[[], None],
         on_history: Callable[[], None] | None = None,
         parent: QWidget | None = None,
@@ -57,6 +57,9 @@ class BubbleWindow(QFrame):
 
         self._send_btn = QPushButton(self)
         self._send_btn.clicked.connect(self._send)
+        self._pending_attachments: list = []
+        self._attach_btn = QPushButton(self)
+        self._attach_btn.clicked.connect(self._pick_attachments)
         self._history_btn = QPushButton(self)
         if self._on_history is not None:
             self._history_btn.clicked.connect(self._on_history)
@@ -66,6 +69,7 @@ class BubbleWindow(QFrame):
 
         row = QHBoxLayout()
         row.addWidget(self._input, 1)
+        row.addWidget(self._attach_btn)
         row.addWidget(self._send_btn)
         row.addWidget(self._history_btn)
         row.addWidget(self._cancel_btn)
@@ -84,8 +88,33 @@ class BubbleWindow(QFrame):
     def retranslate(self) -> None:
         self._input.setPlaceholderText(i18n.t("chat.input_placeholder"))
         self._send_btn.setText(i18n.t("chat.send"))
+        self._attach_btn.setText(i18n.t("chat.attach"))
         self._history_btn.setText(i18n.t("chat.history"))
         self._cancel_btn.setText(i18n.t("chat.cancel"))
+
+    def _pick_attachments(self) -> None:
+        from pathlib import Path
+
+        from PySide6.QtWidgets import QFileDialog
+
+        from ui.attachments import AttachmentError, load_attachment
+
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            i18n.t("chat.attach"),
+            str(Path.home()),
+            "Images (*.png *.jpg *.jpeg *.webp);;Text (*.txt *.md *.py *.json *.csv *.log);;All (*)",
+        )
+        for raw in paths:
+            try:
+                att = load_attachment(Path(raw))
+            except (AttachmentError, OSError):
+                continue
+            self._pending_attachments.append(att)
+        count = len(self._pending_attachments)
+        self._attach_btn.setText(
+            f"{i18n.t('chat.attach')} ({count})" if count else i18n.t("chat.attach")
+        )
 
     def append_message(self, role: str, text: str) -> None:
         prefix = {
@@ -149,7 +178,15 @@ class BubbleWindow(QFrame):
 
     def _send(self) -> None:
         text = self._input.text().strip()
-        if not text:
+        if not text and not self._pending_attachments:
             return
         self._input.clear()
-        self._on_send(text)
+        from ui.attachments import build_user_payload
+
+        prompt, images = build_user_payload(text, self._pending_attachments)
+        for att in self._pending_attachments:
+            if att.kind == "image":
+                prompt = f"{prompt}\n[{i18n.t('chat.attachment')}: {att.name}]".rstrip()
+        self._pending_attachments.clear()
+        self._attach_btn.setText(i18n.t("chat.attach"))
+        self._on_send(prompt, images)

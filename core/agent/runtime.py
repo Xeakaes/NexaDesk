@@ -124,12 +124,14 @@ class AgentRuntime:
         """Hot-swap the optional system prompt (applies to the next task)."""
         self._config.persona = persona
 
-    def begin_task(self, session_id: str, user_text: str) -> str:
+    def begin_task(
+        self, session_id: str, user_text: str, images: list[str] | None = None
+    ) -> str:
         task_id = uuid.uuid4().hex
         task = _Task(task_id, session_id)
         self._tasks[task_id] = task
         self._active_task_id = task_id
-        self._session.add_message(session_id, "user", user_text)
+        self._session.add_message(session_id, "user", user_text, images=images)
         return task_id
 
     def run_task(self, task_id: str) -> None:

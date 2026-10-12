@@ -191,13 +191,15 @@ class App:
             return AvatarWindow(ASSETS / "base", context_menu_factory=self.context_menu)
         raise FileNotFoundError(f"avatar not found: {name}")
 
-    def _on_send(self, text: str) -> None:
+    def _on_send(self, text: str, images: list | None = None) -> None:
         self.bubble.append_message("user", text)
         if self._sid is None:
             self._sid = self._history.create_session()
         self._history.append(self._sid, "user", text)
         self.bubble.set_busy(True)
-        threading.Thread(target=self._run_agent, args=(text,), daemon=True).start()
+        threading.Thread(
+            target=self._run_agent, args=(text, images or None), daemon=True
+        ).start()
 
     def _on_history(self) -> None:
         sessions = [
@@ -220,9 +222,9 @@ class App:
                 lines.append(f"{prefix}: {content}")
         self.bubble.set_transcript("\n".join(lines))
 
-    def _run_agent(self, text: str) -> None:
+    def _run_agent(self, text: str, images: list | None = None) -> None:
         try:
-            tid = self.runtime.begin_task(self._sid, text)
+            tid = self.runtime.begin_task(self._sid, text, images=images)
             self.runtime.run_task(tid)
         except Exception as exc:
             self.signals.finished.emit(f"{i18n.t('chat.error_prefix')}: {exc}")
