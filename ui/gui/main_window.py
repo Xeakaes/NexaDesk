@@ -106,6 +106,8 @@ class ChatWindow(QMainWindow):
         self._busy = False
         self._sidebar_expanded = True
         self._notifier = None
+        self._quitting = False
+        self._tray = None
 
         # --- sidebar ---
         self._new_chat_btn = QPushButton(self)
@@ -240,6 +242,7 @@ class ChatWindow(QMainWindow):
         self._history.purge_empty_sessions()
         self.new_chat()
         QTimer.singleShot(2000, self._schedule_update_check)
+        self._setup_tray()
 
     # --- i18n / theme ---
 
@@ -263,6 +266,8 @@ class ChatWindow(QMainWindow):
         self._update_download_btn.setText(t("update.download"))
         self._update_dismiss_btn.setText(t("update.dismiss"))
         self._refresh_update_banner_text()
+        if self._tray is not None:
+            self._tray.retranslate()
 
     # --- update check ---
 
@@ -285,6 +290,45 @@ class ChatWindow(QMainWindow):
         from ui.update import RELEASES_URL
 
         QDesktopServices.openUrl(QUrl(RELEASES_URL))
+
+    # --- system tray ---
+
+    def _setup_tray(self) -> None:
+        from ui.tray import TrayController
+
+        controller = TrayController(self)
+        if not controller.is_available():
+            controller.deleteLater()
+            return
+        self._tray = controller
+        controller.open_chat.connect(self._show_main_window)
+        controller.open_avatar.connect(self._switch_to_avatar)
+        controller.open_settings.connect(self._open_settings)
+        controller.quit_requested.connect(self._force_quit)
+        controller.show()
+
+    def _show_main_window(self) -> None:
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _force_quit(self) -> None:
+        self._quitting = True
+        self.close()
+        QApplication.instance().quit()
+
+    def closeEvent(self, event) -> None:  # noqa: N802 — Qt naming
+        from ui.tray import close_to_tray_enabled
+
+        if (
+            not self._quitting
+            and self._tray is not None
+            and close_to_tray_enabled(self._settings_path)
+        ):
+            event.ignore()
+            self.hide()
+            return
+        event.accept()
 
     def _toggle_theme(self) -> None:
         prefs = load_prefs(self._ui_json_path)
@@ -569,7 +613,8 @@ class ChatWindow(QMainWindow):
         if not notifications_enabled(self._settings_path):
             return
         if self._notifier is None:
-            self._notifier = Notifier()
+            # Reuse the tray icon when we own one — one icon per process.
+            self._notifier = Notifier(tray=self._tray)
         self._notifier.notify(title, body)
 
     def _on_cancelled(self) -> None:

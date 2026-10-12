@@ -43,5 +43,9 @@ class Notifier:
 
     def notify(self, title: str, body: str) -> None:
         tray = self._ensure_tray()
-        if tray is not None:
-            tray.showMessage(title, body)
+        if tray is None:
+            return
+        # QSystemTrayIcon uses showMessage; TrayController uses show_message.
+        show = getattr(tray, "showMessage", None) or getattr(tray, "show_message", None)
+        if show is not None:
+            show(title, body)

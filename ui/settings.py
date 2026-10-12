@@ -207,6 +207,8 @@ class SettingsWindow(QWidget):
         general_form.addRow("", self._update_check_cb)
         self._notify_cb = QCheckBox(self)
         general_form.addRow("", self._notify_cb)
+        self._close_to_tray_cb = QCheckBox(self)
+        general_form.addRow("", self._close_to_tray_cb)
         general_box = QGroupBox(self)
         general_box.setLayout(general_form)
 
@@ -354,6 +356,7 @@ class SettingsWindow(QWidget):
         self._persona.setPlaceholderText(t("settings.persona_hint"))
         self._update_check_cb.setText(t("settings.update_check"))
         self._notify_cb.setText(t("settings.notify"))
+        self._close_to_tray_cb.setText(t("settings.close_to_tray"))
         self._lbl_provider_type.setText(t("settings.provider_type"))
         self._lbl_provider_url.setText(t("settings.provider_url"))
         self._lbl_provider_model.setText(t("settings.provider_model"))
@@ -460,6 +463,9 @@ class SettingsWindow(QWidget):
         self._notify_cb.setChecked(
             bool((settings.get("notifications") or {}).get("enabled", True))
         )
+        self._close_to_tray_cb.setChecked(
+            bool((settings.get("tray") or {}).get("close_to_tray", True))
+        )
         self._status.setText("")
 
     def save(self) -> None:
@@ -498,6 +504,9 @@ class SettingsWindow(QWidget):
         notifications = settings.get("notifications") or {}
         notifications["enabled"] = self._notify_cb.isChecked()
         settings["notifications"] = notifications
+        tray = settings.get("tray") or {}
+        tray["close_to_tray"] = self._close_to_tray_cb.isChecked()
+        settings["tray"] = tray
         key_name = PROVIDER_KEY_SECRETS.get(ptype, "api_key")
         key_value = self._provider_key.text().strip()
         if key_value:
