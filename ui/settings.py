@@ -154,6 +154,9 @@ class _AiPackWorker:
         self._thread.join(timeout=ms / 1000.0)
         return not self._thread.is_alive()
 
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
+
     def cancel(self) -> None:
         self._cancel.set()
 
@@ -347,6 +350,8 @@ class SettingsWindow(QWidget):
         self._ai_generate = QPushButton(self)
         self._ai_cancel = QPushButton(self)
         self._ai_cancel.hide()
+        self._ai_privacy = QLabel(self)
+        self._ai_privacy.setObjectName("muted")
         avatar_form = QFormLayout()
         self._lbl_avatar = QLabel(self)
         self._lbl_pack_photo = QLabel(self)
@@ -361,6 +366,7 @@ class SettingsWindow(QWidget):
         avatar_form.addRow(self._lbl_ai_model, self._ai_model)
         avatar_form.addRow("", self._ai_generate)
         avatar_form.addRow("", self._ai_cancel)
+        avatar_form.addRow("", self._ai_privacy)
         avatar_box = QGroupBox(self)
         avatar_box.setLayout(avatar_form)
 
@@ -447,6 +453,7 @@ class SettingsWindow(QWidget):
         self._lbl_ai_model.setText(t("settings.ai_model"))
         self._ai_generate.setText(t("settings.ai_generate"))
         self._ai_cancel.setText(t("settings.ai_cancel"))
+        self._ai_privacy.setText(t("settings.ai_privacy"))
         self._lang.setItemText(0, t("settings.lang_tr"))
         self._lang.setItemText(1, t("settings.lang_en"))
         self._theme.setItemText(0, t("settings.theme_dark"))
@@ -588,6 +595,11 @@ class SettingsWindow(QWidget):
         from core.paths import user_avatars_dir
 
         out = user_avatars_dir() / name
+        if out.exists():
+            # Never burn five generations only to collide — and never let
+            # cleanup touch an existing user pack (review Critical #1).
+            self._status.setText(i18n.t("settings.pack_exists", name=name))
+            return
         self._ai_generate.setEnabled(False)
         self._ai_cancel.show()
         self.setCursor(Qt.CursorShape.WaitCursor)
@@ -612,6 +624,7 @@ class SettingsWindow(QWidget):
     def _on_ai_succeeded(self, name: str) -> None:
         self.unsetCursor()
         self._ai_cancel.hide()
+        self._ai_worker = None  # terminal: release the control lock
         self._update_build_enabled()
         self._on_pack_built(name)
         self._status.setText(i18n.t("settings.ai_success", name=name))
@@ -619,12 +632,14 @@ class SettingsWindow(QWidget):
     def _on_ai_failed(self, error: str) -> None:
         self.unsetCursor()
         self._ai_cancel.hide()
+        self._ai_worker = None
         self._update_build_enabled()
         self._status.setText(i18n.t("settings.ai_failed", error=error))
 
     def _on_ai_cancelled(self) -> None:
         self.unsetCursor()
         self._ai_cancel.hide()
+        self._ai_worker = None
         self._update_build_enabled()
         self._status.setText("")
 
@@ -752,7 +767,12 @@ class SettingsWindow(QWidget):
 
     def _update_build_enabled(self, *_a) -> None:
         has_photo = bool(self._pack_path.text().strip()) and bool(self._pack_name.text().strip())
-        self._pack_build.setEnabled(has_photo)
+        ai_running = getattr(self, "_ai_worker", None) is not None and self._ai_worker.is_alive()
+        self._pack_build.setEnabled(has_photo and not ai_running)
+        if ai_running:
+            # A generation run owns the AI controls; never allow a second worker.
+            self._ai_generate.setEnabled(False)
+            return
         has_ai = bool(self._pack_path.text().strip()) and bool(
             self._ai_model.currentText().strip()
         )

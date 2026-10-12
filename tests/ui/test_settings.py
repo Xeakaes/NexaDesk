@@ -717,3 +717,110 @@ def test_ai_generate_failure_shows_status(tmp_path, monkeypatch):
     assert win._ai_generate.isEnabled()
     win.hide()
     win.deleteLater()
+
+
+def test_ai_generate_locked_while_worker_running(tmp_path, monkeypatch):
+    # Review Important #2: textChanged (or a catalog refresh) during a run
+    # must not re-enable the AI Generate button — no second concurrent worker.
+    import threading
+
+    from PySide6.QtWidgets import QApplication
+
+    import ui.settings as sw
+    from ui.avatar.ai_pack import AiPackCancelled
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    cfg = tmp_path / "cfg"
+    bundle = tmp_path / "bundle_assets"
+    (bundle / "avatars").mkdir(parents=True)
+    monkeypatch.setattr("core.paths.assets_dir", lambda: bundle)
+    monkeypatch.setattr("core.paths.config_dir", lambda: cfg)
+
+    gate = threading.Event()
+    started = threading.Event()
+
+    def blocking_build(photo, out, name, generate, *, progress=None, cancelled=None):
+        started.set()
+        gate.wait(5)
+        raise AiPackCancelled()
+
+    monkeypatch.setattr(sw, "build_ai_pack", blocking_build)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    photo = tmp_path / "photo.png"
+    photo.write_bytes(b"fake")
+    win._pack_path.setText(str(photo))
+    win._pack_name.setText("lock")
+    win._ai_model.setCurrentText("gpt-image-1")
+    win._start_ai_pack()
+    assert started.wait(5)
+    # A catalog refresh restores the model text mid-run; the button must
+    # stay locked.
+    win._on_ai_models_loaded(["gpt-image-1"], win._ai_fetch_gen)
+    assert not win._ai_generate.isEnabled()
+    other = tmp_path / "photo2.png"
+    other.write_bytes(b"fake2")
+    win._pack_path.setText(str(other))  # textChanged mid-run
+    assert not win._ai_generate.isEnabled()
+    gate.set()
+    assert win._ai_worker.wait(5000)
+    for _ in range(50):
+        app.processEvents()
+        if win._ai_generate.isEnabled():
+            break
+        threading.Event().wait(0.05)
+    # Terminal state unlocks again.
+    assert win._ai_generate.isEnabled()
+    win.hide()
+    win.deleteLater()
+
+
+def test_ai_privacy_hint_label_present(tmp_path):
+    # Review Important #3: the plan requires a privacy hint row on the avatar
+    # tab — photo/prompts go only to the selected provider.
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from ui.i18n import i18n
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    assert isinstance(win._ai_privacy, QLabel)
+    assert win._ai_privacy.text() == i18n.t("settings.ai_privacy")
+    win.hide()
+    win.deleteLater()
+
+
+def test_start_ai_pack_fails_fast_on_existing_name(tmp_path, monkeypatch):
+    # Critical #1 UI side: an existing pack name must surface pack_exists
+    # immediately, without starting a generation worker.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.i18n import i18n
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    cfg = tmp_path / "cfg"
+    bundle = tmp_path / "bundle_assets"
+    (bundle / "avatars").mkdir(parents=True)
+    monkeypatch.setattr("core.paths.assets_dir", lambda: bundle)
+    monkeypatch.setattr("core.paths.config_dir", lambda: cfg)
+    existing = cfg / "avatars" / "taken"
+    existing.mkdir(parents=True)
+
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    photo = tmp_path / "photo.png"
+    photo.write_bytes(b"fake")
+    win._pack_path.setText(str(photo))
+    win._pack_name.setText("taken")
+    win._ai_model.setCurrentText("gpt-image-1")
+    win._start_ai_pack()
+    assert getattr(win, "_ai_worker", None) is None
+    assert win._status.text() == i18n.t("settings.pack_exists", name="taken")
+    win.hide()
+    win.deleteLater()

@@ -101,3 +101,28 @@ def test_build_ai_pack_cleans_up_on_generator_failure(tmp_path):
         build_ai_pack(photo, out, "pack", generate)
 
     assert not out.exists()
+
+
+def test_build_ai_pack_never_deletes_preexisting_dir(tmp_path):
+    # Review Critical #1: an out_dir that already exists (user's pack) must
+    # fail fast and stay untouched — no cleanup, no wasted generations.
+    from ui.avatar.pack import PackError
+
+    out = tmp_path / "pack"
+    out.mkdir()
+    marker = out / "manifest.json"
+    marker.write_text("{}")
+    photo = tmp_path / "ref.png"
+    photo.write_bytes(_png_bytes())
+
+    calls = []
+
+    def generate(state, prompt):
+        calls.append(state)
+        return _png_bytes()
+
+    with pytest.raises(PackError):
+        build_ai_pack(photo, out, "pack", generate)
+
+    assert calls == []
+    assert marker.exists()

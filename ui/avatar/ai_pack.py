@@ -58,6 +58,9 @@ def build_ai_pack(
     """
     states = tuple(EMOTION_PROMPTS)
     total = len(states)
+    # Fail fast on collision: never touch a directory this run did not create.
+    if out_dir.exists():
+        raise PackError(f"exists: {out_dir}")
     state_images: dict[str, Image.Image] = {}
     for index, state in enumerate(states, start=1):
         if cancelled is not None and cancelled():
