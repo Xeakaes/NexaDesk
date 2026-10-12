@@ -215,3 +215,16 @@ def test_legacy_openai_compat_type_still_accepted():
         {"api_key": "sk-test"},
     )
     assert isinstance(p, OpenAICompatibleProvider) and p.api_key == "sk-test"
+
+
+def test_preset_url_matches_create_provider_defaults():
+    # B18: the Settings URL reset must use exactly the defaults
+    # create_provider would fall back to — one source, no drift.
+    from core.providers import _OPENAI_COMPATIBLE_PRESETS, preset_url
+
+    assert preset_url("ollama") == "http://127.0.0.1:11434"
+    assert preset_url("openai_compatible") == "https://api.openai.com/v1"
+    assert preset_url("github") == "https://api.github.com/copilot"
+    assert preset_url("nararouter") == ""
+    for ptype, (url, _key) in _OPENAI_COMPATIBLE_PRESETS.items():
+        assert preset_url(ptype) == url

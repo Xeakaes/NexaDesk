@@ -18,6 +18,23 @@ def _vision(provider_cfg: dict) -> bool:
     return bool(provider_cfg.get("vision", True))
 
 
+def preset_url(provider_type: str) -> str:
+    """Base URL preset for a provider type (what Settings shows on switch).
+
+    Single source for the fallbacks create_provider would use — the Settings
+    URL field is reset to this on a provider-type change (B18) so a custom
+    URL from the previous provider never receives the new provider's key.
+    """
+    if provider_type == "ollama":
+        return "http://127.0.0.1:11434"
+    if provider_type == "openai_compatible":
+        return "https://api.openai.com/v1"
+    if provider_type == "github":
+        return "https://api.github.com/copilot"
+    preset = _OPENAI_COMPATIBLE_PRESETS.get(provider_type)
+    return preset[0] if preset else ""
+
+
 # Standard OpenAI-compatible presets: provider type -> (default base_url,
 # secrets key). Special-cased types (openai_compatible's secret fallback,
 # nararouter's URL trimming) live in create_provider directly.

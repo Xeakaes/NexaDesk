@@ -392,6 +392,11 @@ class SettingsWindow(QWidget):
         key_name = PROVIDER_KEY_SECRETS.get(ptype, "api_key")
         secrets = self._read(self._secrets_path)
         self._provider_key.setText(str(secrets.get(key_name, "")))
+        # B18: a custom URL from the previous provider must not survive a
+        # type change — saving would send the new provider's key to that host.
+        from core.providers import preset_url
+
+        self._provider_url.setText(preset_url(ptype))
         self._provider_warning.setVisible(ptype == "github")
         self._fetch_models()
 

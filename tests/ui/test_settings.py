@@ -412,3 +412,28 @@ def test_save_uses_combo_current_text(tmp_path):
     assert data["provider"]["model"] == "my-hand-typed-model"
     win.hide()
     win.deleteLater()
+
+
+def test_provider_type_change_resets_url_to_preset(tmp_path, monkeypatch):
+    # B18: a custom URL from the previous provider must not survive a type
+    # change — saving would send the new provider's key to that old host.
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    monkeypatch.setattr(win, "_fetch_models", lambda: None)  # keep it offline
+    win.load()
+    win._provider_type.setCurrentText("openai_compatible")
+    win._provider_url.setText("https://proxy.example.com/v1")  # user's proxy
+    win._provider_type.setCurrentText("groq")
+    assert win._provider_url.text() == "https://api.groq.com/openai/v1"
+    win.save()
+    data = json.loads(settings.read_text())
+    assert data["provider"]["url"] == "https://api.groq.com/openai/v1"
+    win.hide()
+    win.deleteLater()
