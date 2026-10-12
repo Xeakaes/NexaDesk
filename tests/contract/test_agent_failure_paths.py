@@ -216,3 +216,49 @@ def test_cancel_during_rate_limit_backoff_is_cancelled_not_error():
     assert "agent_cancelled" in names
     assert "agent_error" not in names
     assert "agent_finished" not in names
+
+
+def test_tool_pool_saturation_fails_fast_with_distinct_code():
+    # B14: future.cancel() cannot stop a running tool thread. Once every
+    # pool worker is stuck on a hung tool, the next call must fail fast
+    # with a distinct "pool_saturated" code instead of silently waiting
+    # out the wall clock on a future that can never start.
+    import time as _time
+
+    from core.agent.config import AgentConfig
+
+    hang = FakeTool("hang", ignore_cancel=True, sleep_s=1.5)
+    provider = FakeProvider([
+        ProviderResponse(text=None, tool_calls=[
+            ToolCall(id=f"c{i}", name="hang", arguments={}) for i in range(5)
+        ]),
+        ProviderResponse(text="done", tool_calls=[]),
+    ])
+    reg = ToolRegistry()
+    reg.register(hang)
+    from core.events import EventBus as _Bus
+    from core.session.store import SessionStore as _SS
+
+    rt = AgentRuntime(
+        provider, reg, PermissionPolicy({"*": "allow"}),
+        _Bus(), _SS(), AgentConfig(tool_timeout_s=0.15, max_tool_calls=10),
+    )
+    seen = []
+    rt._events.subscribe("*", seen.append)
+    t0 = _time.perf_counter()
+    tid = rt.begin_task("s1", "go")
+    rt.run_task(tid)
+    elapsed = _time.perf_counter() - t0
+    tool_events = [e for e in seen if e.name == "tool_finished"]
+    # 4 hung calls burn the 4 workers; the 5th must not wait a full timeout.
+    saturated = [
+        e for e in tool_events
+        if e.payload.get("error_code") == "pool_saturated"
+        or "saturated" in (e.payload.get("summary") or "")
+    ]
+    assert saturated, (
+        "expected a pool_saturated tool_finished, got: "
+        + repr([(e.payload.get("ok"), e.payload.get("summary")) for e in tool_events])
+    )
+    # Fail-fast: the saturated call must not burn the full tool_timeout again.
+    assert elapsed < 0.15 * 5 + 0.45

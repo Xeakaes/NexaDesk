@@ -106,7 +106,14 @@ class AgentRuntime:
         self._config = config or AgentConfig()
         self._tasks: dict[str, _Task] = {}
         self._active_task_id: str | None = None
-        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tool")
+        self._pool_size = 4
+        self._executor = ThreadPoolExecutor(
+            max_workers=self._pool_size, thread_name_prefix="tool"
+        )
+        # B14: futures whose wall clock expired but whose threads are still
+        # running (future.cancel() cannot stop a live thread). Counted so a
+        # saturated pool fails fast instead of queueing doomed calls.
+        self._hung_futures: list = []
 
     @property
     def active_task_id(self) -> str | None:
@@ -434,13 +441,31 @@ class AgentRuntime:
         self._events.publish(
             "tool_started", sid, tid, {"tool_name": name, "arguments": arguments}
         )
+        # B14: future.cancel() cannot stop a live thread. If every pool worker
+        # is stuck on a hung tool, a new submission would only queue behind
+        # them and burn the whole wall clock — fail fast with a distinct code.
+        self._hung_futures = [f for f in self._hung_futures if not f.done()]
+        if len(self._hung_futures) >= self._pool_size:
+            result = ToolResult(
+                ok=False,
+                error="tool pool saturated by timed-out tools; retry after they finish",
+                error_code="pool_saturated",
+            )
+            self._events.publish(
+                "tool_finished", sid, tid,
+                {"tool_name": name, "ok": result.ok, "summary": result.error,
+                 "error_code": result.error_code},
+            )
+            return result
         tool_token = _LinkedToken(task.token)
         future = self._executor.submit(tool.execute, arguments, tool_token)
         try:
             result = future.result(timeout=self._config.tool_timeout_s)
         except FuturesTimeout:
             tool_token.cancel()  # let the tool observe cancellation
-            future.cancel()
+            if not future.cancel():
+                # Still running: it keeps its worker until it finishes.
+                self._hung_futures.append(future)
             result = ToolResult(
                 ok=False, error="tool timed out", error_code="timeout"
             )
@@ -450,6 +475,7 @@ class AgentRuntime:
             )
         self._events.publish(
             "tool_finished", sid, tid,
-            {"tool_name": name, "ok": result.ok, "summary": result.error or "ok"},
+            {"tool_name": name, "ok": result.ok, "summary": result.error or "ok",
+             "error_code": result.error_code},
         )
         return result
