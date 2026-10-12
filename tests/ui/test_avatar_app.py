@@ -174,3 +174,19 @@ def test_avatar_agent_error_unauthorized_shows_i18n_hint(tmp_path, monkeypatch):
     ui._on_event(ev)
     assert i18n.t("chat.error_unauthorized") in ui.bubble._transcript.toPlainText()
     ui.close()
+
+
+def test_context_menu_keeps_strong_ref(tmp_path, monkeypatch):
+    # B22: the avatar context menu (settings / chat / switch avatar / quit)
+    # must stay owned by the App — a menu freed while its actions can still
+    # fire is a use-after-free.
+    import gc
+    import weakref
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    menu = ui.context_menu()
+    ref = weakref.ref(menu)
+    del menu
+    gc.collect()
+    assert ref() is not None, "App must keep the context menu alive"
+    assert ui._ctx_menu is ref()

@@ -46,6 +46,7 @@ class AvatarWindow(QWidget):
     ) -> None:
         super().__init__(parent)
         self._context_menu_factory = context_menu_factory
+        self._active_menu: QMenu | None = None  # B22: strong ref while open
         self._avatar_dir = avatar_dir
         self._states: dict[str, StateAnim] = load_manifest(avatar_dir / "manifest.json")
         self._spinner_frames = load_spinner_frames(avatar_dir)
@@ -87,7 +88,9 @@ class AvatarWindow(QWidget):
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         if self._context_menu_factory is not None:
-            self._context_menu_factory().exec(event.globalPos())
+            menu = self._context_menu_factory()
+            self._active_menu = menu
+            menu.exec(event.globalPos())
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:

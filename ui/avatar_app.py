@@ -89,6 +89,7 @@ class App:
             on_history=self._on_history,
         )
         self.settings_win = SettingsWindow(self.settings_path, self.secrets_path)
+        self._ctx_menu: QMenu | None = None  # B22: strong ref, see context_menu
         saved = getattr(self.settings_win, "saved", None)
         if saved is not None:
             saved.connect(self._on_settings_saved)
@@ -310,7 +311,12 @@ class App:
             self.signals.activity.emit("")
 
     def context_menu(self) -> QMenu:
+        # B22: keep a strong ref — the menu must never be a temporary that
+        # Qt outlives (use-after-free on its actions). App is a QObject, not
+        # a QWidget, so unlike tray.py we cannot parent it; same ownership
+        # pattern as TrayController._menu.
         menu = QMenu()
+        self._ctx_menu = menu
         act_settings = QAction(i18n.t("menu.settings"), menu)
         act_settings.triggered.connect(self._open_settings)
         act_chat = QAction(i18n.t("menu.chat"), menu)
