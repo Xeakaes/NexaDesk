@@ -79,3 +79,80 @@ def test_default_client_factory_uses_vendor(monkeypatch):
     src = __import__("pathlib").Path(b.__file__).read_text()
     assert "/home/xeakaes/screen-control" not in src
     assert "vendor.sc_server.sdk" in src
+
+
+def _load_fake_server(tmp_path, monkeypatch):
+    """Fresh server module bound to the fake backend + isolated data dir."""
+    pytest = __import__("pytest")
+    pytest.importorskip("flask")
+    monkeypatch.setenv("SCREEN_CONTROL_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SCREEN_CONTROL_BACKEND", "fake")
+    for name in [m for m in list(sys.modules)
+                 if m.startswith("vendor.sc_server.server")]:
+        del sys.modules[name]
+    mod = importlib.import_module("vendor.sc_server.server")
+    monkeypatch.setattr(mod, "_is_valid_token", lambda token: bool(token))
+    return mod
+
+
+def test_key_error_releases_held_keys(tmp_path, monkeypatch):
+    # B12: a failed input batch means the client's paired key_up may never
+    # arrive — the server must lift everything now, not after the watchdog.
+    mod = _load_fake_server(tmp_path, monkeypatch)
+    fake = mod._b()
+    client = mod.app.test_client()
+    hdr = {"X-Auth-Token": "t"}
+    resp = client.post("/api/key", json={"action": "down", "key": "ctrl"}, headers=hdr)
+    assert resp.status_code == 200
+    assert "ctrl" in client.get("/api/held", headers=hdr).get_json()["keys"]
+
+    def boom(*a, **k):
+        raise RuntimeError("device gone")
+
+    monkeypatch.setattr(fake, "key_press", boom)
+    resp = client.post("/api/key", json={"action": "press", "key": "a"}, headers=hdr)
+    assert resp.status_code == 500
+    assert client.get("/api/held", headers=hdr).get_json()["keys"] == []
+
+
+def test_mouse_error_releases_held_buttons(tmp_path, monkeypatch):
+    mod = _load_fake_server(tmp_path, monkeypatch)
+    fake = mod._b()
+    client = mod.app.test_client()
+    hdr = {"X-Auth-Token": "t"}
+    resp = client.post("/api/mouse", json={"action": "down", "button": "left"}, headers=hdr)
+    assert resp.status_code == 200
+    assert "left" in client.get("/api/held", headers=hdr).get_json()["buttons"]
+
+    def boom(*a, **k):
+        raise RuntimeError("device gone")
+
+    monkeypatch.setattr(fake, "mouse_move", boom)
+    resp = client.post("/api/mouse", json={"action": "move", "x": 1, "y": 2}, headers=hdr)
+    assert resp.status_code == 500
+    assert client.get("/api/held", headers=hdr).get_json()["buttons"] == []
+
+
+def test_shutdown_releases_held_keys(tmp_path, monkeypatch):
+    # B12: process exit with a key still down leaves it stuck at the OS
+    # level forever (the watchdog dies with the process).
+    mod = _load_fake_server(tmp_path, monkeypatch)
+    fake = mod._b()
+    fake.key_down("ctrl")
+    assert "ctrl" in fake.held_state()["keys"]
+
+    class FakeServer:
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+    import werkzeug.serving
+
+    monkeypatch.setattr(
+        werkzeug.serving, "make_server", lambda *a, **k: FakeServer()
+    )
+    monkeypatch.setattr("sys.argv", ["sc_server"])
+    try:
+        mod.main()
+    except KeyboardInterrupt:
+        pass
+    assert fake.held_state()["keys"] == []

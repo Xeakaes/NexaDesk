@@ -67,6 +67,16 @@ def _input_blocked(exc):
                               "platform": None, "action": None,
                               "remediation": None}}), 403
 
+
+def _release_input_after_failure() -> None:
+    """B12: a failed input batch means the client's paired key_up/mouse_up
+    may never arrive — lift everything now instead of waiting for the
+    watchdog (or forever, if we are about to exit)."""
+    try:
+        _b().release_all()
+    except Exception:
+        pass
+
 app = Flask(__name__)
 
 # Request-body ceiling: every JSON endpoint reads the full body, so an
@@ -796,6 +806,7 @@ def mouse():
             else:
                 return jsonify({"ok": False, "error": f"unknown action: {action}"}), 400
     except Exception as exc:
+        _release_input_after_failure()
         return jsonify({"ok": False, "error": str(exc)}), 500
     return jsonify({"ok": True})
 
@@ -844,6 +855,7 @@ def key():
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
+        _release_input_after_failure()
         return jsonify({"ok": False, "error": str(exc)}), 500
     return jsonify({"ok": True})
 
@@ -1465,7 +1477,15 @@ def main():
 
     server = make_server(args.host, args.port, app, threaded=True)
     _write_session_token()
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        # B12: never exit with keys/buttons still down at the OS level —
+        # the watchdog dies with the process, so this is the last chance.
+        try:
+            _b().release_all()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
