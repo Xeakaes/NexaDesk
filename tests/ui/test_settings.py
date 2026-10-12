@@ -437,3 +437,43 @@ def test_provider_type_change_resets_url_to_preset(tmp_path, monkeypatch):
     assert data["provider"]["url"] == "https://api.groq.com/openai/v1"
     win.hide()
     win.deleteLater()
+
+
+def test_stale_model_list_worker_cannot_apply_results(tmp_path, monkeypatch):
+    # B23: a slow catalog fetch started for the previous provider type must
+    # not refill the dropdown after the user has already switched again.
+    from PySide6.QtWidgets import QApplication
+
+    import ui.settings as sw
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+
+    workers = []
+
+    class FakeWorker:
+        def __init__(self, s, k):
+            self.signals = sw._ModelListSignals()
+            workers.append(self)
+
+        def start(self):
+            pass
+
+        def wait(self, ms=5000):
+            return True
+
+    monkeypatch.setattr(sw, "_ModelListWorker", FakeWorker)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._provider_type.setCurrentText("github")  # fetch #1
+    win._provider_type.setCurrentText("groq")    # fetch #2
+    assert len(workers) == 2
+    # Fetch #1 finishes late, after the user already moved on to groq.
+    workers[0].signals.finished.emit(["stale-model"])
+    assert win._provider_model.findText("stale-model") == -1
+    # The current fetch still applies.
+    workers[1].signals.finished.emit(["fresh-model"])
+    assert win._provider_model.findText("fresh-model") >= 0
+    win.hide()
+    win.deleteLater()

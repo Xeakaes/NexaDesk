@@ -244,6 +244,7 @@ class SettingsWindow(QWidget):
         provider_box = QGroupBox(self)
         provider_box.setLayout(provider_form)
         self._model_worker: _ModelListWorker | None = None
+        self._model_fetch_gen = 0  # B23: latest catalog fetch wins
         self._btn_refresh_models.clicked.connect(self._fetch_models)
         self._provider_type.currentTextChanged.connect(self._on_provider_type_changed)
 
@@ -416,11 +417,21 @@ class SettingsWindow(QWidget):
         }
         self._btn_refresh_models.setEnabled(False)
         self._model_worker = _ModelListWorker(settings, secrets)
-        self._model_worker.signals.finished.connect(self._on_models_loaded)
-        self._model_worker.signals.failed.connect(self._on_models_failed)
+        self._model_fetch_gen += 1
+        gen = self._model_fetch_gen
+        self._model_worker.signals.finished.connect(
+            lambda models, g=gen: self._on_models_loaded(models, g)
+        )
+        self._model_worker.signals.failed.connect(
+            lambda g=gen: self._on_models_failed(g)
+        )
         self._model_worker.start()
 
-    def _on_models_loaded(self, models: list) -> None:
+    def _on_models_loaded(self, models: list, gen: int | None = None) -> None:
+        if gen is not None and gen != self._model_fetch_gen:
+            # B23: a superseded fetch (previous provider type) must not
+            # overwrite the dropdown the user is looking at now.
+            return
         self._btn_refresh_models.setEnabled(True)
         current = self._provider_model.currentText().strip()
         self._provider_model.clear()
@@ -429,7 +440,9 @@ class SettingsWindow(QWidget):
             # Keep whatever the user had (typed or selected) as the value.
             self._provider_model.setCurrentText(current)
 
-    def _on_models_failed(self) -> None:
+    def _on_models_failed(self, gen: int | None = None) -> None:
+        if gen is not None and gen != self._model_fetch_gen:
+            return
         self._btn_refresh_models.setEnabled(True)
 
     def load(self) -> None:
