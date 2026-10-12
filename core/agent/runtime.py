@@ -136,6 +136,11 @@ class AgentRuntime:
         self._tasks[task_id] = task
         self._active_task_id = task_id
         self._session.add_message(session_id, "user", user_text, images=images)
+        if images:
+            # B13: user attachments used to accumulate forever, so every
+            # later request resent all prior base64 blobs. Bound them the
+            # same way tool-result images are bounded.
+            self._session.trim_images(session_id, self._config.max_history_images)
         return task_id
 
     def run_task(self, task_id: str) -> None:

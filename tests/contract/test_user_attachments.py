@@ -35,3 +35,24 @@ def test_begin_task_without_images_unchanged():
     tid = rt.begin_task("s1", "selam")
     rt.run_task(tid)
     assert provider.calls[0].messages[0].images is None
+
+
+def test_user_images_trimmed_to_max_history():
+    # B13: user attachments used to accumulate forever, so every later
+    # request resent all prior base64 blobs. Only the newest
+    # max_history_images image-bearing messages may keep their images.
+    provider = FakeProvider(
+        [ProviderResponse(text="ok", tool_calls=[]) for _ in range(3)]
+    )
+    rt = _runtime(provider)
+    uri1 = "data:image/png;base64," + base64.b64encode(b"one").decode()
+    uri2 = "data:image/png;base64," + base64.b64encode(b"two").decode()
+    tid = rt.begin_task("s1", "ilk ek", images=[uri1])
+    rt.run_task(tid)
+    tid = rt.begin_task("s1", "ikinci ek", images=[uri2])
+    rt.run_task(tid)
+    msgs = rt._session.messages("s1")
+    with_images = [m for m in msgs if m.images]
+    # max_history_images defaults to 1: only the newest survives.
+    assert len(with_images) == 1
+    assert with_images[0].images == [uri2]
