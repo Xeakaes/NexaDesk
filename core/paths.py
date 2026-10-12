@@ -21,6 +21,27 @@ def bundle_root() -> Path:
     return repo_root()
 
 
+def bundled_version() -> str:
+    """Best-known running version: APP_VERSION env, baked _version.txt, core.
+
+    The release build writes the real version into _version.txt; comparing
+    against core.__version__ alone would always report "0.0.0" (B10).
+    """
+    import os as _os
+
+    env = _os.environ.get("APP_VERSION", "").strip()
+    if env:
+        return env
+    p = bundle_root() / "_version.txt"
+    if p.exists():
+        v = p.read_text(encoding="utf-8").strip()
+        if v:
+            return v
+    from core import __version__
+
+    return __version__
+
+
 def config_dir() -> Path:
     if is_frozen():
         if os.name == "nt":

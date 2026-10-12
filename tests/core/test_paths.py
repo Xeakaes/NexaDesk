@@ -30,6 +30,39 @@ def test_bundle_root_frozen(monkeypatch, tmp_path):
     assert paths.bundle_root() == tmp_path / "b"
 
 
+def test_bundled_version_prefers_version_file(monkeypatch, tmp_path):
+    # B10: the packaged app writes the real version into _version.txt at
+    # build time; the update check must compare against that, not 0.0.0.
+    monkeypatch.delenv("APP_VERSION", raising=False)
+    (tmp_path / "_version.txt").write_text("0.2.1\n", encoding="utf-8")
+    monkeypatch.setattr(paths, "bundle_root", lambda: tmp_path)
+    assert paths.bundled_version() == "0.2.1"
+
+
+def test_bundled_version_env_wins(monkeypatch, tmp_path):
+    monkeypatch.setenv("APP_VERSION", "1.2.3")
+    (tmp_path / "_version.txt").write_text("9.9.9", encoding="utf-8")
+    monkeypatch.setattr(paths, "bundle_root", lambda: tmp_path)
+    assert paths.bundled_version() == "1.2.3"
+
+
+def test_bundled_version_falls_back_to_core_version(monkeypatch, tmp_path):
+    monkeypatch.delenv("APP_VERSION", raising=False)
+    monkeypatch.setattr(paths, "bundle_root", lambda: tmp_path)  # no _version.txt
+    from core import __version__
+
+    assert paths.bundled_version() == __version__
+
+
+def test_bundled_version_ignores_blank_file(monkeypatch, tmp_path):
+    monkeypatch.delenv("APP_VERSION", raising=False)
+    (tmp_path / "_version.txt").write_text("   \n", encoding="utf-8")
+    monkeypatch.setattr(paths, "bundle_root", lambda: tmp_path)
+    from core import __version__
+
+    assert paths.bundled_version() == __version__
+
+
 def test_assets_dir_dev(monkeypatch):
     monkeypatch.delattr(sys, "frozen", raising=False)
     monkeypatch.delattr(sys, "_MEIPASS", raising=False)

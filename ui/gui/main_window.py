@@ -285,10 +285,12 @@ class ChatWindow(QMainWindow):
     # --- update check ---
 
     def _schedule_update_check(self) -> None:
-        from core import __version__
+        from core.paths import bundled_version
         from ui.update import schedule_update_check
 
-        schedule_update_check(self._settings_path, __version__, self._show_update_banner)
+        schedule_update_check(
+            self._settings_path, bundled_version(), self._show_update_banner
+        )
 
     def _show_update_banner(self, tag: str) -> None:
         self._update_tag = tag

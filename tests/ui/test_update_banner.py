@@ -57,3 +57,25 @@ def test_update_enabled_reads_settings(tmp_path):
     assert update_check_enabled(settings_path) is True
     settings_path.write_text('{"updates": {"check_enabled": false}}')
     assert update_check_enabled(settings_path) is False
+
+
+def test_schedule_update_check_uses_bundled_version(tmp_path, monkeypatch):
+    # B10: comparing against core.__version__ ("0.0.0") made every release
+    # look newer; the baked _version.txt must win.
+    from core import paths as core_paths
+
+    app, win = _win(tmp_path)
+    seen = {}
+
+    def fake_schedule(settings_path, current_version, on_newer):
+        seen["version"] = current_version
+
+    monkeypatch.setattr("ui.update.schedule_update_check", fake_schedule)
+    monkeypatch.delenv("APP_VERSION", raising=False)
+    ver_dir = tmp_path / "bundle"
+    ver_dir.mkdir()
+    (ver_dir / "_version.txt").write_text("0.2.1", encoding="utf-8")
+    monkeypatch.setattr(core_paths, "bundle_root", lambda: ver_dir)
+    win._schedule_update_check()
+    assert seen["version"] == "0.2.1"
+    win.close()
