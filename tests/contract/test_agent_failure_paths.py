@@ -198,3 +198,21 @@ def test_cancel_discards_late_tool_result():
     names = [e.name for e in seen]
     assert "agent_cancelled" in names
     assert "agent_finished" not in names
+
+
+def test_cancel_during_rate_limit_backoff_is_cancelled_not_error():
+    # B11: the provider raises ProviderError(error_code="cancelled") when the
+    # user cancels during a rate-limit sleep. That must surface as
+    # agent_cancelled (normal cancel UX), not agent_error.
+    from core.providers.base import ProviderError
+
+    provider = FakeProvider([ProviderError("cancelled", error_code="cancelled")])
+    rt, events = _runtime(provider)
+    seen = []
+    events.subscribe("*", seen.append)
+    task_id, th = _run_on_thread(rt, "s1", "selam")
+    th.join(timeout=2.0)
+    names = [e.name for e in seen]
+    assert "agent_cancelled" in names
+    assert "agent_error" not in names
+    assert "agent_finished" not in names

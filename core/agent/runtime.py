@@ -212,6 +212,11 @@ class AgentRuntime:
                 except TaskCancelled:
                     raise
                 except ProviderError as exc:
+                    if exc.error_code == "cancelled":
+                        # B11: a cancel observed inside the provider (e.g.
+                        # during a rate-limit sleep) is still a cancellation,
+                        # not a provider failure.
+                        raise TaskCancelled() from exc
                     outcome, error_code = "error", exc.error_code
                     self._events.publish(
                         "agent_error", sid, tid,
