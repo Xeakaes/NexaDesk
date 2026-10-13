@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import tempfile
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, QTimer, Qt, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -74,7 +75,7 @@ PROVIDER_KEY_SECRETS = {
 
 
 class _PackSignals(QObject):
-    """Signal carrier living on the UI thread; safe to emit from any thread."""
+    """Shared signal carrier for pack builds; created parented on the UI thread."""
 
     succeeded = Signal(str)  # pack name
     failed = Signal(str, str, str)  # name, kind, detail (B41)
@@ -90,9 +91,14 @@ class _PackBuildWorker:
     safely and no Qt object is destroyed mid-delivery.
     """
 
-    def __init__(self, src: Path, out: Path, name: str, parent=None) -> None:
-        del parent  # kept for API compat; a plain thread has no Qt parent
-        self.signals = _PackSignals()
+    def __init__(
+        self, src: Path, out: Path, name: str, signals: _PackSignals
+    ) -> None:
+        # B61: the signal carrier is created on the UI thread, parented to
+        # the window, and shared by all jobs — a per-job unparented carrier
+        # destroyed on the worker thread while its queued MetaCall event was
+        # still in flight segfaults (measured 6/6; shared+parented is 0/6).
+        self.signals = signals
         self._src = src
         self._out = out
         self._name = name
@@ -120,15 +126,56 @@ class _PackBuildWorker:
             self.signals.succeeded.emit(self._name)
 
 
-class _ModelListSignals(QObject):
-    """Signal carrier living on the UI thread; safe to emit from any thread."""
+class _ModelListWorker:
+    """Fetches the provider's model catalog on a plain background thread.
 
-    finished = Signal(list)  # model ids
-    failed = Signal()
+    B61: results are handed back through a SimpleQueue + Event — no QObject,
+    no signal. A per-job signal carrier destroyed on the worker thread while
+    its queued MetaCall event was still in flight segfaulted the Settings
+    window (use-after-free on the Python subclass wrapper). Plain attribute
+    handoff is also unsafe on free-threaded builds, hence the queue.
+    """
+
+    def __init__(self, settings: dict, secrets: dict) -> None:
+        self.gen = 0
+        self._queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._done = threading.Event()
+        self._settings = settings
+        self._secrets = secrets
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    @property
+    def done(self) -> bool:
+        return self._done.is_set()
+
+    def take(self) -> tuple[bool, list | None]:
+        """Pop the (error, result) pair once the worker is done."""
+        return self._queue.get_nowait()
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def wait(self, ms: int = 5000) -> bool:
+        """Join the worker thread; True if it finished within the timeout."""
+        self._thread.join(timeout=ms / 1000.0)
+        return not self._thread.is_alive()
+
+    def _run(self) -> None:
+        try:
+            from core.providers import create_provider
+
+            provider = create_provider(self._settings, self._secrets)
+            models = provider.list_models()
+        except Exception:  # noqa: BLE001 — bad key/network: keep the dropdown usable
+            self._queue.put((True, None))
+        else:
+            self._queue.put((False, list(models)))
+        finally:
+            self._done.set()
 
 
 class _AiPackSignals(QObject):
-    """Signal carrier for the AI pack worker; UI-thread affine."""
+    """Shared signal carrier for AI pack builds; parented on the UI thread."""
 
     progress = Signal(str, int, int)  # state, index, total
     succeeded = Signal(str)  # pack name
@@ -139,8 +186,17 @@ class _AiPackSignals(QObject):
 class _AiPackWorker:
     """Runs build_ai_pack on a plain thread (same pattern as _PackBuildWorker)."""
 
-    def __init__(self, src: Path, out: Path, name: str, model: str, client) -> None:
-        self.signals = _AiPackSignals()
+    def __init__(
+        self,
+        src: Path,
+        out: Path,
+        name: str,
+        model: str,
+        client,
+        signals: _AiPackSignals,
+    ) -> None:
+        # B61: shared UI-thread parented carrier (see _PackBuildWorker).
+        self.signals = signals
         self._src = src
         self._out = out
         self._name = name
@@ -181,40 +237,6 @@ class _AiPackWorker:
             self.signals.failed.emit(str(exc))
         else:
             self.signals.succeeded.emit(self._name)
-
-
-class _ModelListWorker:
-    """Fetches the provider's model catalog on a plain background thread.
-
-    Same pattern as _PackBuildWorker: a plain threading.Thread (no QThread
-    teardown race) emitting through a UI-thread-affine QObject, so the
-    Settings window never blocks on a network round-trip.
-    """
-
-    def __init__(self, settings: dict, secrets: dict) -> None:
-        self.signals = _ModelListSignals()
-        self._settings = settings
-        self._secrets = secrets
-        self._thread = threading.Thread(target=self._run, daemon=True)
-
-    def start(self) -> None:
-        self._thread.start()
-
-    def wait(self, ms: int = 5000) -> bool:
-        """Join the worker thread; True if it finished within the timeout."""
-        self._thread.join(timeout=ms / 1000.0)
-        return not self._thread.is_alive()
-
-    def _run(self) -> None:
-        try:
-            from core.providers import create_provider
-
-            provider = create_provider(self._settings, self._secrets)
-            models = provider.list_models()
-        except Exception:  # noqa: BLE001 — bad key/network: keep the dropdown usable
-            self.signals.failed.emit()
-        else:
-            self.signals.finished.emit(list(models))
 
 
 def merge_permissions(existing: dict, default: str, per_tool: dict) -> dict:
@@ -305,6 +327,7 @@ class SettingsWindow(QWidget):
         provider_box.setLayout(provider_form)
         self._model_worker: _ModelListWorker | None = None
         self._model_fetch_gen = 0  # B23: latest catalog fetch wins
+        self._ai_model_worker: _ModelListWorker | None = None
         self._btn_refresh_models.clicked.connect(self._fetch_models)
         self._provider_type.currentTextChanged.connect(self._on_provider_type_changed)
 
@@ -415,6 +438,24 @@ class SettingsWindow(QWidget):
 
         language_bridge.changed.connect(self._on_language_changed)
 
+        # B61: model-fetch results are drained on the UI thread — a worker
+        # thread's cross-thread signal emit segfaults frozen builds.
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(100)
+        self._poll_timer.timeout.connect(self._poll_workers)
+        self._poll_timer.start()
+
+        # B61: one shared, window-parented carrier per pack worker family —
+        # created and connected on the UI thread, never destroyed mid-emit.
+        self._pack_signals = _PackSignals(self)
+        self._pack_signals.succeeded.connect(self._on_pack_built)
+        self._pack_signals.failed.connect(self._on_pack_failed)
+        self._ai_pack_signals = _AiPackSignals(self)
+        self._ai_pack_signals.progress.connect(self._on_ai_progress)
+        self._ai_pack_signals.succeeded.connect(self._on_ai_succeeded)
+        self._ai_pack_signals.failed.connect(self._on_ai_failed)
+        self._ai_pack_signals.cancelled.connect(self._on_ai_cancelled)
+
         self.load()
         self.retranslate()
 
@@ -500,14 +541,9 @@ class SettingsWindow(QWidget):
         self._btn_refresh_models.setEnabled(False)
         self._model_worker = _ModelListWorker(settings, secrets)
         self._model_fetch_gen += 1
-        gen = self._model_fetch_gen
-        self._model_worker.signals.finished.connect(
-            lambda models, g=gen: self._on_models_loaded(models, g)
-        )
-        self._model_worker.signals.failed.connect(
-            lambda g=gen: self._on_models_failed(g)
-        )
+        self._model_worker.gen = self._model_fetch_gen
         self._model_worker.start()
+        self._poll_timer.start()
 
     def _on_models_loaded(self, models: list, gen: int | None = None) -> None:
         if gen is not None and gen != self._model_fetch_gen:
@@ -543,14 +579,9 @@ class SettingsWindow(QWidget):
         }
         self._ai_model_worker = _ModelListWorker(settings, secrets)
         self._ai_fetch_gen += 1
-        gen = self._ai_fetch_gen
-        self._ai_model_worker.signals.finished.connect(
-            lambda models, g=gen: self._on_ai_models_loaded(models, g)
-        )
-        self._ai_model_worker.signals.failed.connect(
-            lambda g=gen: self._on_ai_models_failed(g)
-        )
+        self._ai_model_worker.gen = self._ai_fetch_gen
         self._ai_model_worker.start()
+        self._poll_timer.start()
 
     def _on_ai_models_loaded(self, models: list, gen: int | None = None) -> None:
         if gen is not None and gen != self._ai_fetch_gen:
@@ -568,6 +599,33 @@ class SettingsWindow(QWidget):
     def _on_ai_models_failed(self, gen: int | None = None) -> None:
         if gen is not None and gen != self._ai_fetch_gen:
             return
+
+    def _poll_workers(self) -> None:
+        """Drain finished model-fetch workers on the UI thread (B61)."""
+        self._drain_worker(
+            "_model_worker", "_model_fetch_gen",
+            self._on_models_loaded, self._on_models_failed,
+        )
+        self._drain_worker(
+            "_ai_model_worker", "_ai_fetch_gen",
+            self._on_ai_models_loaded, self._on_ai_models_failed,
+        )
+        if self._model_worker is None and self._ai_model_worker is None:
+            self._poll_timer.stop()
+
+    def _drain_worker(self, worker_attr: str, gen_attr: str, on_ok, on_fail) -> None:
+        worker = getattr(self, worker_attr, None)
+        if worker is None or not worker.done:
+            return
+        error, result = worker.take()  # always pop, even for superseded jobs
+        setattr(self, worker_attr, None)
+        gen = getattr(self, gen_attr)
+        if worker.gen != gen:
+            return  # superseded fetch (B23): drop the stale result
+        if error:
+            on_fail(gen)
+        else:
+            on_ok(result or [], gen)
 
     def _ai_client(self) -> ImageGenClient:
         """Build an ImageGenClient from the current provider form values."""
@@ -605,12 +663,11 @@ class SettingsWindow(QWidget):
         self._ai_generate.setEnabled(False)
         self._ai_cancel.show()
         self.setCursor(Qt.CursorShape.WaitCursor)
-        worker = _AiPackWorker(Path(src), out, name, model, self._ai_client())
+        worker = _AiPackWorker(
+            Path(src), out, name, model, self._ai_client(),
+            signals=self._ai_pack_signals,
+        )
         self._ai_worker = worker
-        worker.signals.progress.connect(self._on_ai_progress)
-        worker.signals.succeeded.connect(self._on_ai_succeeded)
-        worker.signals.failed.connect(self._on_ai_failed)
-        worker.signals.cancelled.connect(self._on_ai_cancelled)
         worker.start()
 
     def _cancel_ai_pack(self) -> None:
@@ -812,10 +869,8 @@ class SettingsWindow(QWidget):
         # Build on a background thread so the UI stays responsive.
         self._pack_build.setEnabled(False)
         self.setCursor(Qt.CursorShape.WaitCursor)
-        worker = _PackBuildWorker(Path(src), out, name, parent=self)
+        worker = _PackBuildWorker(Path(src), out, name, signals=self._pack_signals)
         self._pack_worker = worker
-        worker.signals.succeeded.connect(self._on_pack_built)
-        worker.signals.failed.connect(self._on_pack_failed)
         worker.start()
 
     def _on_pack_built(self, name: str) -> None:
@@ -879,6 +934,15 @@ class SettingsWindow(QWidget):
                 self._avatar.setCurrentIndex(idx)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        # B61: stop the poll timer, drop worker refs, and join in-flight
+        # fetch threads — exiting while a daemon worker is inside OpenSSL
+        # (urllib TLS) races libcrypto's atexit cleanup and segfaults.
+        self._poll_timer.stop()
+        for attr in ("_model_worker", "_ai_model_worker"):
+            worker = getattr(self, attr, None)
+            if worker is not None:
+                worker.wait(500)
+                setattr(self, attr, None)
         self.hide()
         event.ignore()
 

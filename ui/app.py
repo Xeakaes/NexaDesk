@@ -131,6 +131,8 @@ def main() -> int:
         app.aboutToQuit.connect(runtime.close)
         app.aboutToQuit.connect(history.close)
         win.show()
+        if os.environ.get("NEXADESK_DEBUG_OPEN_SETTINGS") == "1":
+            QTimer.singleShot(1200, win._open_settings)
         if needs_setup:
             QTimer.singleShot(0, lambda: _guide_provider_setup(win, runtime))
         code = app.exec()

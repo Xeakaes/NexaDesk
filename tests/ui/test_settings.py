@@ -321,9 +321,50 @@ def test_model_field_is_editable_dropdown(tmp_path):
     win.deleteLater()
 
 
-def test_fetch_models_populates_dropdown_and_keeps_current(tmp_path, monkeypatch):
-    import threading
+def test_model_worker_exposes_poll_state(tmp_path, monkeypatch):
+    # B61: the worker must expose a pollable result (done/take) instead of
+    # emitting cross-thread signals — a per-job signal carrier destroyed on
+    # the worker thread while its queued MetaCall event was still in flight
+    # segfaults the Settings window (use-after-free on the SbkObject wrapper).
+    from ui.settings import _ModelListWorker
 
+    class StubProvider:
+        def list_models(self):
+            return ["m/a", "m/b"]
+
+    monkeypatch.setattr(
+        "core.providers.create_provider", lambda *a, **k: StubProvider()
+    )
+    worker = _ModelListWorker({"provider": {"type": "groq"}}, {"groq_api_key": "g"})
+    assert worker.done is False
+    worker.start()
+    assert worker.wait(5000), "model fetch worker did not finish"
+    assert worker.done is True
+    error, result = worker.take()
+    assert error is False
+    assert result == ["m/a", "m/b"]
+
+
+def test_model_worker_error_is_pollable(tmp_path, monkeypatch):
+    from ui.settings import _ModelListWorker
+
+    class BoomProvider:
+        def list_models(self):
+            raise RuntimeError("nope")
+
+    monkeypatch.setattr(
+        "core.providers.create_provider", lambda *a, **k: BoomProvider()
+    )
+    worker = _ModelListWorker({"provider": {"type": "groq"}}, {"groq_api_key": "g"})
+    worker.start()
+    assert worker.wait(5000)
+    assert worker.done is True
+    error, result = worker.take()
+    assert error is True
+    assert result is None
+
+
+def test_fetch_models_populates_dropdown_and_keeps_current(tmp_path, monkeypatch):
     from PySide6.QtWidgets import QApplication
 
     from ui.settings import SettingsWindow
@@ -347,11 +388,7 @@ def test_fetch_models_populates_dropdown_and_keeps_current(tmp_path, monkeypatch
     win._fetch_models()
     assert win._model_worker is not None
     assert win._model_worker.wait(5000), "model fetch worker did not finish"
-    for _ in range(50):
-        app.processEvents()
-        if win._btn_refresh_models.isEnabled():
-            break
-        threading.Event().wait(0.05)
+    win._poll_workers()
     items = [win._provider_model.itemText(i) for i in range(win._provider_model.count())]
     # Ordering/sorting is the provider's job (covered in provider tests);
     # the UI inserts whatever the catalog returns.
@@ -364,8 +401,6 @@ def test_fetch_models_populates_dropdown_and_keeps_current(tmp_path, monkeypatch
 
 
 def test_fetch_models_failure_reenables_button(tmp_path, monkeypatch):
-    import threading
-
     from PySide6.QtWidgets import QApplication
 
     from ui.settings import SettingsWindow
@@ -385,11 +420,7 @@ def test_fetch_models_failure_reenables_button(tmp_path, monkeypatch):
     win.load()
     win._fetch_models()
     assert win._model_worker.wait(5000)
-    for _ in range(50):
-        app.processEvents()
-        if win._btn_refresh_models.isEnabled():
-            break
-        threading.Event().wait(0.05)
+    win._poll_workers()
     assert win._btn_refresh_models.isEnabled()
     win.hide()
     win.deleteLater()
@@ -454,8 +485,13 @@ def test_stale_model_list_worker_cannot_apply_results(tmp_path, monkeypatch):
 
     class FakeWorker:
         def __init__(self, s, k):
-            self.signals = sw._ModelListSignals()
+            self.done = True
+            self.gen = 0
+            self._payload = (False, None)
             workers.append(self)
+
+        def take(self):
+            return self._payload
 
         def start(self):
             pass
@@ -472,10 +508,15 @@ def test_stale_model_list_worker_cannot_apply_results(tmp_path, monkeypatch):
     # AI image-model catalog. Provider workers are [0] and [2].
     assert len(workers) == 4
     # Fetch #1 finishes late, after the user already moved on to groq.
-    workers[0].signals.finished.emit(["stale-model"])
+    workers[0]._payload = (False, ["stale-model"])
+    win._model_worker = workers[0]  # still queued behind the newer fetch
+    win._poll_workers()
     assert win._provider_model.findText("stale-model") == -1
+    assert win._model_worker is None  # superseded worker was drained and dropped
     # The current fetch still applies.
-    workers[2].signals.finished.emit(["fresh-model"])
+    workers[2]._payload = (False, ["fresh-model"])
+    win._model_worker = workers[2]
+    win._poll_workers()
     assert win._provider_model.findText("fresh-model") >= 0
     win.hide()
     win.deleteLater()
@@ -534,8 +575,13 @@ def test_ai_model_fetch_generation_guard(tmp_path, monkeypatch):
 
     class FakeWorker:
         def __init__(self, s, k):
-            self.signals = sw._ModelListSignals()
+            self.done = True
+            self.gen = 0
+            self._payload = (False, None)
             workers.append(self)
+
+        def take(self):
+            return self._payload
 
         def start(self):
             pass
@@ -550,9 +596,13 @@ def test_ai_model_fetch_generation_guard(tmp_path, monkeypatch):
     win._fetch_ai_models()  # fetch #2
     assert len(workers) == 2
     # A stale fetch (superseded provider) must not refill the AI dropdown.
-    workers[0].signals.finished.emit(["stale-image-model"])
+    workers[0]._payload = (False, ["stale-image-model"])
+    win._ai_model_worker = workers[0]
+    win._poll_workers()
     assert win._ai_model.findText("stale-image-model") == -1
-    workers[1].signals.finished.emit(["fresh-image-model"])
+    workers[1]._payload = (False, ["fresh-image-model"])
+    win._ai_model_worker = workers[1]
+    win._poll_workers()
     assert win._ai_model.findText("fresh-image-model") >= 0
     win.hide()
     win.deleteLater()
@@ -894,10 +944,8 @@ def test_pack_failed_signal_carries_detail(tmp_path, monkeypatch):
     win = SettingsWindow(settings, secrets, ui_json)
 
     class W:
-        def __init__(self, *a, **k):
-            from ui.settings import _PackSignals
-
-            self.signals = _PackSignals()
+        def __init__(self, *a, signals=None, **k):
+            self.signals = signals
 
         def start(self):
             pass
@@ -906,7 +954,7 @@ def test_pack_failed_signal_carries_detail(tmp_path, monkeypatch):
     win._pack_path.setText(str(tmp_path / "x.png"))
     win._pack_name.setText("broken")
     win._build_pack()
-    win._pack_worker.signals.failed.emit("broken", "error", "the pipeline exploded")
+    win._pack_signals.failed.emit("broken", "error", "the pipeline exploded")
     assert "the pipeline exploded" in win._status.text()
     win.hide()
     win.deleteLater()
@@ -937,3 +985,51 @@ def test_pack_build_worker_is_plain_thread_not_qthread():
         and n.func.id == "QThread"
         for n in ast.walk(worker_cls)
     )
+
+
+def test_workers_do_not_construct_signal_holders():
+    # B61 invariant: worker classes must never create their own QObject
+    # signal carriers. A per-job unparented carrier destroyed on the worker
+    # thread while its queued MetaCall event is still in flight segfaults
+    # (Shiboken use-after-free on the SbkObject wrapper). Carriers are built
+    # parented on the UI thread and passed in instead.
+    import ast
+
+    from ui import settings as settings_mod
+
+    tree = ast.parse(Path(settings_mod.__file__).read_text())
+    forbidden = {
+        "_PackSignals",
+        "_AiPackSignals",
+        "_ModelListSignals",
+        "_UpdateSignals",
+        "QObject",
+    }
+    for cls_name in ("_PackBuildWorker", "_AiPackWorker", "_ModelListWorker"):
+        worker_cls = next(
+            n for n in tree.body
+            if isinstance(n, ast.ClassDef) and n.name == cls_name
+        )
+        for n in ast.walk(worker_cls):
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+                assert n.func.id not in forbidden, (
+                    f"{cls_name} constructs {n.func.id}() — "
+                    "signal carriers must be created parented on the UI thread"
+                )
+
+
+def test_model_list_worker_holds_no_qobject():
+    # B61 runtime invariant: the polling _ModelListWorker must be a plain
+    # object — no QObject reachable from its instance dict.
+    from PySide6.QtCore import QObject
+
+    from ui.settings import _ModelListWorker
+
+    worker = _ModelListWorker({"provider": {"type": "groq"}}, {})
+    for value in vars(worker).values():
+        assert not isinstance(value, QObject), (
+            "B61: _ModelListWorker must not hold a QObject — "
+            "use SimpleQueue/Event handoff, not signals"
+        )
+    worker.start()
+    assert worker.wait(5000) or not worker._thread.is_alive()

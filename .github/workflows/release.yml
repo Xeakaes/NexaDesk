@@ -29,6 +29,10 @@ jobs:
         # Retry once: PySide6 offscreen teardown can segfault after all
         # tests pass (exit 139) — a known flake, not a real failure.
         run: QT_QPA_PLATFORM=offscreen python -m pytest tests -q || QT_QPA_PLATFORM=offscreen python -m pytest tests -q
+      - name: B61 fetch-race stress (no retry, release gate)
+        # Deliberately NOT wrapped in the retry above — a retry would mask
+        # the real Settings-window segfault regression this test guards.
+        run: QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_settings_fetch_race.py -q
 
   build-linux:
     needs: test

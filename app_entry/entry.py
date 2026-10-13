@@ -8,6 +8,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -349,7 +350,71 @@ def maybe_spawn_server(settings: dict, exe_path: str | None = None) -> str | Non
     return None
 
 
+def _install_crash_handler() -> None:
+    """Persist uncaught exceptions and native faults to config/logs/crash.log.
+
+    Windowed PyInstaller builds have sys.stderr = None, so an exception in
+    any Qt slot is silently swallowed by PyErr_PrintEx — or worse, segfaults
+    inside CPython's suggestion machinery while trying to render it (seen
+    in the wild on 2026-10-13). Writing the traceback to a file first makes
+    frozen crashes debuggable. faulthandler additionally captures the C-level
+    stack of a SIGSEGV (e.g. the B61 Shiboken use-after-free) instead of
+    leaving crash.log empty.
+    """
+    import faulthandler
+    import traceback
+    from datetime import datetime, timezone
+
+    log_path = None
+    log_fh = None
+    try:
+        from core.paths import config_dir
+
+        log_dir = config_dir() / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "crash.log"
+        log_fh = open(log_path, "a", encoding="utf-8")  # noqa: SIM115 — lives for the process
+    except Exception:
+        pass
+
+    # Windowed PyInstaller builds null out the std streams on Windows/macOS.
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+
+    if log_fh is not None:
+        try:
+            faulthandler.enable(file=log_fh, all_threads=True)
+        except Exception:
+            pass
+
+    def _write(exc_type, exc, tb) -> None:
+        if log_path is None:
+            return
+        try:
+            stamp = datetime.now(timezone.utc).isoformat()
+            text = "".join(traceback.format_exception(exc_type, exc, tb))
+            with open(log_path, "a", encoding="utf-8") as fh:
+                fh.write(f"=== {stamp} ===\n{text}\n")
+        except OSError:
+            pass
+
+    def _handler(exc_type, exc, tb) -> None:
+        _write(exc_type, exc, tb)
+        orig = getattr(sys, "__excepthook__", sys.__excepthook__)
+        orig(exc_type, exc, tb)
+
+    sys.excepthook = _handler
+
+    def _thread_hook(args) -> None:
+        _write(args.exc_type, args.exc_value, args.exc_traceback)
+
+    threading.excepthook = _thread_hook
+
+
 def main(argv: list[str] | None = None) -> int:
+    _install_crash_handler()
     args = sys.argv[1:] if argv is None else argv
     if "--serve-screen-control" in args:
         return serve_screen_control(args)
