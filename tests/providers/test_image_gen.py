@@ -179,3 +179,44 @@ def test_generate_generations_200_with_error_body_raises_provider_error(tmp_path
 
     with pytest.raises(ImageGenError, match="Unexpected endpoint or method"):
         client.generate("flux.2-klein-4b", "a prompt")
+
+
+def test_decode_image_response_accepts_nvidia_artifacts():
+    png = _png_bytes()
+    b64 = base64.b64encode(png).decode()
+    out = decode_image_response({"artifacts": [{"base64": b64}]})
+    assert out == png
+
+
+def test_generate_nvidia_genai_base_posts_genai_path():
+    png = _png_bytes()
+    b64 = base64.b64encode(png).decode()
+    session = FakeSession([
+        FakeResponse({"artifacts": [{"base64": b64}]}),
+    ])
+    client = ImageGenClient("https://ai.api.nvidia.com", "key", session=session)
+
+    out = client.generate("black-forest-labs/flux.1-dev", "a prompt")
+
+    assert out == png
+    call = session.calls[0]
+    assert call["url"] == "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-dev"
+    assert call["json"]["prompt"] == "a prompt"
+    assert call["headers"]["Authorization"] == "Bearer key"
+
+
+def test_generate_nvidia_skips_edits_and_uses_genai_path(tmp_path):
+    png = _png_bytes()
+    photo = tmp_path / "ref.png"
+    photo.write_bytes(png)
+    b64 = base64.b64encode(png).decode()
+    session = FakeSession([
+        FakeResponse({"artifacts": [{"base64": b64}]}),
+    ])
+    client = ImageGenClient("https://ai.api.nvidia.com", "key", session=session)
+
+    out = client.generate("black-forest-labs/flux.1-dev", "a prompt", photo=photo)
+
+    assert out == png
+    assert len(session.calls) == 1
+    assert session.calls[0]["url"].endswith("/v1/genai/black-forest-labs/flux.1-dev")

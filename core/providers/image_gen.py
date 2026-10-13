@@ -8,8 +8,12 @@ Speaks two wire formats, in order of preference:
   that do not ship the edits endpoint.
 
 Responses are accepted in either common shape: ``data[0].b64_json`` (bytes)
-or ``data[0].url`` (downloaded). Failures raise :class:`ImageGenError` with
-the HTTP status of the last attempt when available.
+or ``data[0].url`` (downloaded), plus the Nvidia NIM ``artifacts[0].base64``
+shape; an ``{"error": ...}`` body surfaces the provider message. When
+``base_url`` points at ``ai.api.nvidia.com`` the client speaks the native
+``POST {base}/v1/genai/{model}`` endpoint (no edits path). Failures raise
+:class:`ImageGenError` with the HTTP status of the last attempt when
+available.
 """
 
 from __future__ import annotations
@@ -51,8 +55,9 @@ class ImageGenError(Exception):
 def decode_image_response(payload: object, *, session: requests.Session | None = None) -> bytes:
     """Extract image bytes from an images-endpoint JSON payload.
 
-    Accepts ``{"data": [{"b64_json": ...}]}`` and ``{"data": [{"url": ...}]}``;
-    an ``{"error": ...}`` body (some local servers, e.g. LM Studio, return
+    Accepts ``{"data": [{"b64_json": ...}]}``, ``{"data": [{"url": ...}]}`` and
+    the Nvidia NIM ``{"artifacts": [{"base64": ...}]}`` shape; an
+    ``{"error": ...}`` body (some local servers, e.g. LM Studio, return
     HTTP 200 with an error payload for unsupported endpoints) surfaces the
     provider message; anything else raises :class:`ImageGenError`.
     """
@@ -63,6 +68,11 @@ def decode_image_response(payload: object, *, session: requests.Session | None =
         if isinstance(provider_error, dict):
             provider_error = provider_error.get("message") or provider_error.get("code")
         raise ImageGenError(f"provider error: {provider_error}")
+    artifacts = payload.get("artifacts")
+    if isinstance(artifacts, list) and artifacts and isinstance(artifacts[0], dict):
+        b64 = artifacts[0].get("base64")
+        if b64:
+            return base64.b64decode(b64)
     data = payload.get("data")
     if not isinstance(data, list) or not data or not isinstance(data[0], dict):
         raise ImageGenError("unexpected image response payload")
@@ -97,9 +107,12 @@ class ImageGenClient:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.api_key}"}
 
+    def _is_nvidia_genai(self) -> bool:
+        return "ai.api.nvidia.com" in self.base_url
+
     def generate(self, model: str, prompt: str, photo: Path | None = None) -> bytes:
         """Generate one image; ``photo`` enables the edits (reference) path."""
-        if photo is not None:
+        if photo is not None and not self._is_nvidia_genai():
             try:
                 resp = self._post_edits(model, prompt, photo)
             except requests.RequestException:
@@ -143,6 +156,13 @@ class ImageGenClient:
         )
 
     def _post_generations(self, model: str, prompt: str):
+        if self._is_nvidia_genai():
+            return self._session.post(
+                f"{self.base_url}/v1/genai/{model}",
+                headers=self._headers(),
+                json={"prompt": prompt, "width": 1024, "height": 1024},
+                timeout=self.timeout_s,
+            )
         return self._session.post(
             f"{self.base_url}/images/generations",
             headers=self._headers(),
