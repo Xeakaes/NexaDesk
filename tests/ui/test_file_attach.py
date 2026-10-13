@@ -57,6 +57,26 @@ def test_pick_attachments_adds_chip(tmp_path, monkeypatch):
     win.close()
 
 
+def test_attach_plus_button_lives_in_the_input_row(tmp_path, monkeypatch):
+    # The "+" affordance is embedded at the far left of the message input
+    # (ChatGPT-style), not a separate button next to Send.
+    app, win = _win(tmp_path)
+    plus = win._attach_plus
+    # It is inside the input row container, to the left of the text edit.
+    assert plus.parent() is win._input_row
+    row_l = win._input_row.layout()
+    assert row_l.indexOf(plus) == 0
+    assert row_l.indexOf(win._chat_input) > 0
+    # Clicking it opens the file picker (same flow as before).
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QFileDialog.getOpenFileNames",
+        staticmethod(lambda *a, **k: ([_img(tmp_path)], "")),
+    )
+    plus.click()
+    assert len(win._pending_attachments) == 1
+    win.close()
+
+
 def test_remove_attachment_hides_chip_bar(tmp_path, monkeypatch):
     app, win = _win(tmp_path)
     monkeypatch.setattr(

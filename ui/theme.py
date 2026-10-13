@@ -114,6 +114,11 @@ QPushButton[outline="true"] {{ background: transparent; color: {t['fg']};
     border: 2px solid {t['input_border']}; border-radius: 10px; padding: 8px 16px; }}
 QPushButton[outline="true"]:hover {{ background: {t['surface_hover']}; }}
 QPushButton[outline="true"]:focus {{ border-color: {t['accent']}; }}
+QPushButton#attach_plus {{ background: transparent; color: {t['fg_muted']};
+    border: none; border-radius: 8px; padding: 0px; font-weight: bold; }}
+QPushButton#attach_plus:hover {{ background: {t['surface_hover']};
+    color: {t['fg']}; }}
+QPushButton#attach_plus:focus {{ color: {t['accent']}; }}
 QFrame#bubble {{ background: {t['bg_alt']}; border: 1px solid {t['border']};
     border-radius: 14px; }}
 QFrame#bubble QPlainTextEdit, QFrame#bubble QLineEdit {{ background: {t['bg']};
