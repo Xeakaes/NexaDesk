@@ -155,3 +155,27 @@ def test_decode_image_response_rejects_unknown_shape():
         decode_image_response({})
     with pytest.raises(ImageGenError):
         decode_image_response({"data": []})
+
+
+def test_decode_image_response_surfaces_provider_error_body():
+    with pytest.raises(ImageGenError, match="Unexpected endpoint or method"):
+        decode_image_response(
+            {"error": "Unexpected endpoint or method. (POST /v1/images/generations)"}
+        )
+
+
+def test_decode_image_response_surfaces_nested_provider_error_object():
+    with pytest.raises(ImageGenError, match="(?i)unsupported media type"):
+        decode_image_response(
+            {"error": {"message": "Unsupported Media Type", "code": "unsupported_media_type"}}
+        )
+
+
+def test_generate_generations_200_with_error_body_raises_provider_error(tmp_path):
+    session = FakeSession([
+        FakeResponse({"error": "Unexpected endpoint or method."}, status_code=200),
+    ])
+    client = ImageGenClient("http://localhost:1235/v1", "key", session=session)
+
+    with pytest.raises(ImageGenError, match="Unexpected endpoint or method"):
+        client.generate("flux.2-klein-4b", "a prompt")

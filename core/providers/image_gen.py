@@ -52,10 +52,17 @@ def decode_image_response(payload: object, *, session: requests.Session | None =
     """Extract image bytes from an images-endpoint JSON payload.
 
     Accepts ``{"data": [{"b64_json": ...}]}`` and ``{"data": [{"url": ...}]}``;
-    anything else raises :class:`ImageGenError`.
+    an ``{"error": ...}`` body (some local servers, e.g. LM Studio, return
+    HTTP 200 with an error payload for unsupported endpoints) surfaces the
+    provider message; anything else raises :class:`ImageGenError`.
     """
     if not isinstance(payload, dict):
         raise ImageGenError("unexpected image response payload")
+    provider_error = payload.get("error")
+    if provider_error is not None:
+        if isinstance(provider_error, dict):
+            provider_error = provider_error.get("message") or provider_error.get("code")
+        raise ImageGenError(f"provider error: {provider_error}")
     data = payload.get("data")
     if not isinstance(data, list) or not data or not isinstance(data[0], dict):
         raise ImageGenError("unexpected image response payload")
