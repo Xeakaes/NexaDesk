@@ -372,6 +372,8 @@ class SettingsWindow(QWidget):
         self._pack_delete = QPushButton(self)
         self._ai_model = QComboBox(self)
         self._ai_model.setEditable(True)
+        self._ai_url = QLineEdit(self)
+        self._lbl_ai_url = QLabel(self)
         self._ai_generate = QPushButton(self)
         self._ai_cancel = QPushButton(self)
         self._ai_cancel.hide()
@@ -389,6 +391,7 @@ class SettingsWindow(QWidget):
         avatar_form.addRow("", self._pack_build)
         avatar_form.addRow("", self._pack_delete)
         avatar_form.addRow(self._lbl_ai_model, self._ai_model)
+        avatar_form.addRow(self._lbl_ai_url, self._ai_url)
         avatar_form.addRow("", self._ai_generate)
         avatar_form.addRow("", self._ai_cancel)
         avatar_form.addRow("", self._ai_privacy)
@@ -494,6 +497,8 @@ class SettingsWindow(QWidget):
         self._lbl_pack_photo.setText(t("settings.pack_pick"))
         self._lbl_pack_name.setText(t("settings.pack_name"))
         self._lbl_ai_model.setText(t("settings.ai_model"))
+        self._lbl_ai_url.setText(t("settings.ai_url"))
+        self._ai_url.setPlaceholderText(t("settings.ai_url_placeholder"))
         self._ai_generate.setText(t("settings.ai_generate"))
         self._ai_cancel.setText(t("settings.ai_cancel"))
         self._ai_privacy.setText(t("settings.ai_privacy"))
@@ -632,7 +637,11 @@ class SettingsWindow(QWidget):
         from core.providers import preset_url
 
         ptype = self._provider_type.currentText()
-        base_url = self._provider_url.text().strip() or preset_url(ptype)
+        base_url = (
+            self._ai_url.text().strip()
+            or self._provider_url.text().strip()
+            or preset_url(ptype)
+        )
         key_name = PROVIDER_KEY_SECRETS.get(ptype, "api_key")
         key_value = self._provider_key.text().strip()
         if not key_value:
@@ -725,6 +734,7 @@ class SettingsWindow(QWidget):
             self._fetch_models()
             self._fetch_ai_models()
         ai = settings.get("avatar_ai") or {}
+        self._ai_url.setText(str(ai.get("url") or ""))
         self._ai_model.setCurrentText(str(ai.get("model", "")))
         sc = settings.get("screen_control") or {}
         self._sc_host.setText(sc.get("host", "127.0.0.1"))
@@ -783,7 +793,10 @@ class SettingsWindow(QWidget):
             per_tool,
         )
         settings["avatar"] = self._avatar.currentText() or "base"
-        settings["avatar_ai"] = {"model": self._ai_model.currentText().strip()}
+        settings["avatar_ai"] = {
+            "model": self._ai_model.currentText().strip(),
+            "url": self._ai_url.text().strip(),
+        }
         agent = settings.get("agent") or {}
         agent["persona"] = self._persona.toPlainText().strip()
         settings["agent"] = agent

@@ -109,6 +109,11 @@ STRINGS: dict[str, dict[str, str]] = {
     "settings.pack_exists": {"tr": "Bu isim zaten var: {name}", "en": "Name already exists: {name}"},
     "settings.pack_bad_image": {"tr": "Geçersiz veya bozuk görsel.", "en": "Invalid or corrupt image."},
     "settings.ai_model": {"tr": "AI görsel modeli", "en": "AI image model"},
+    "settings.ai_url": {"tr": "AI görsel sunucu", "en": "AI image server"},
+    "settings.ai_url_placeholder": {
+        "tr": "boş = sohbet sağlayıcı URL'si",
+        "en": "empty = chat provider URL",
+    },
     "settings.ai_generate": {"tr": "AI ile paket oluştur", "en": "Generate pack with AI"},
     "settings.ai_cancel": {"tr": "İptal", "en": "Cancel"},
     "settings.ai_privacy": {

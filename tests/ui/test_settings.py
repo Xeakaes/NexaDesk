@@ -543,7 +543,48 @@ def test_avatar_ai_model_round_trip(tmp_path):
     win.hide()
     win.deleteLater()
     win2.hide()
-    win2.deleteLater()
+
+
+def test_avatar_ai_url_round_trip_and_client_precedence(tmp_path):
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._ai_url.setText("https://ai.api.nvidia.com")
+    win.save()
+    data = json.loads(settings.read_text())
+    assert data["avatar_ai"]["url"] == "https://ai.api.nvidia.com"
+
+    win2 = SettingsWindow(settings, secrets, ui_json)
+    win2.load()
+    assert win2._ai_url.text() == "https://ai.api.nvidia.com"
+    client = win2._ai_client()
+    assert client.base_url == "https://ai.api.nvidia.com"
+    win.hide()
+    win.deleteLater()
+    win2.hide()
+
+
+def test_avatar_ai_url_empty_falls_back_to_provider_url(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._provider_url.setText("https://example.com/v1")
+    client = win._ai_client()
+    assert client.base_url == "https://example.com/v1"
+    win.hide()
+    win.deleteLater()
 
 
 def test_ai_model_dropdown_filters_to_image_models(tmp_path):
