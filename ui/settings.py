@@ -9,8 +9,8 @@ import tempfile
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QTimer, Qt, Signal
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtCore import QObject, QTimer, Qt, QUrl, Signal
+from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -31,6 +31,11 @@ from PySide6.QtWidgets import (
 
 from ui.avatar.ai_pack import AiPackCancelled, build_ai_pack
 from ui.avatar.pack import PackError, build_pack, delete_pack, sanitize_pack_name
+from core.auth.github_device import (
+    GitHubDeviceError,
+    poll_for_token,
+    request_device_code,
+)
 from core.providers.image_gen import ImageGenClient, ImageGenError
 from ui.i18n import i18n, language_bridge
 from ui.paths import SECRETS_PATH, SETTINGS_PATH, ui_json_path
@@ -170,6 +175,43 @@ class _ModelListWorker:
             self._queue.put((True, None))
         else:
             self._queue.put((False, list(models)))
+        finally:
+            self._done.set()
+
+
+class _GithubDeviceWorker:
+    """Runs the GitHub OAuth device flow off the UI thread (B61-safe).
+
+    Intermediate ``user_code`` (for the status line) rides a second queue so
+    the UI can show it while the poll is still waiting for the browser.
+    """
+
+    def __init__(self) -> None:
+        self.gen = 0
+        self._queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._done = threading.Event()
+        self.code_queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    @property
+    def done(self) -> bool:
+        return self._done.is_set()
+
+    def take(self) -> tuple[str | None, str | None]:
+        """Pop the (error, token) pair once the worker is done."""
+        return self._queue.get_nowait()
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _run(self) -> None:
+        try:
+            code = request_device_code()
+            self.code_queue.put((code.user_code, code.verification_uri))
+            token = poll_for_token(code)
+            self._queue.put((None, token))
+        except Exception as exc:  # noqa: BLE001 — surface the message in the status line
+            self._queue.put((str(exc), None))
         finally:
             self._done.set()
 
@@ -320,6 +362,11 @@ class SettingsWindow(QWidget):
         self._provider_warning.setWordWrap(True)
         self._provider_warning.setVisible(False)
         provider_form.addRow("", self._provider_warning)
+        # Shown only for provider type "github": one-click Copilot sign-in
+        # via the official OAuth device flow (gh CLI app, no PAT paste).
+        self._github_login = QPushButton(self)
+        self._github_login.setVisible(False)
+        provider_form.addRow("", self._github_login)
         provider_form.addRow(self._lbl_provider_url, self._provider_url)
         provider_form.addRow(self._lbl_provider_model, model_row)
         provider_form.addRow(self._lbl_provider_key, self._provider_key)
@@ -330,6 +377,10 @@ class SettingsWindow(QWidget):
         self._ai_model_worker: _ModelListWorker | None = None
         self._btn_refresh_models.clicked.connect(self._fetch_models)
         self._provider_type.currentTextChanged.connect(self._on_provider_type_changed)
+        self._github_device_worker: _GithubDeviceWorker | None = None
+        self._github_device_gen = 0  # B23 parity: latest sign-in wins
+        self._github_browser_gen = 0  # open the browser once per sign-in
+        self._github_login.clicked.connect(self._start_github_login)
 
         # --- screen control section ---
         self._sc_host = QLineEdit(self)
@@ -489,6 +540,7 @@ class SettingsWindow(QWidget):
         self._lbl_provider_model.setText(t("settings.provider_model"))
         self._btn_refresh_models.setText(t("settings.refresh_models"))
         self._lbl_provider_key.setText(t("settings.provider_key"))
+        self._github_login.setText(t("settings.github_login"))
         self._lbl_sc_host.setText(t("settings.sc_host"))
         self._lbl_sc_port.setText(t("settings.sc_port"))
         self._lbl_sc_key.setText(t("settings.sc_key"))
@@ -526,6 +578,7 @@ class SettingsWindow(QWidget):
 
         self._provider_url.setText(preset_url(ptype))
         self._provider_warning.setVisible(ptype == "github")
+        self._github_login.setVisible(ptype == "github")
         self._fetch_models()
         self._fetch_ai_models()
 
@@ -615,8 +668,56 @@ class SettingsWindow(QWidget):
             "_ai_model_worker", "_ai_fetch_gen",
             self._on_ai_models_loaded, self._on_ai_models_failed,
         )
-        if self._model_worker is None and self._ai_model_worker is None:
+        self._drain_github_login()
+        if (
+            self._model_worker is None
+            and self._ai_model_worker is None
+            and self._github_device_worker is None
+        ):
             self._poll_timer.stop()
+
+    def _drain_github_login(self) -> None:
+        """Surface the user_code immediately; apply the token when ready."""
+        worker = self._github_device_worker
+        if worker is None:
+            return
+        while not worker.code_queue.empty():
+            user_code, uri = worker.code_queue.get_nowait()
+            if worker.gen == self._github_device_gen:
+                self._status.setText(
+                    f"{i18n.t('settings.github_device_code')} {user_code}  ({uri})"
+                )
+                if self._github_browser_gen != worker.gen:
+                    self._github_browser_gen = worker.gen
+                    QDesktopServices.openUrl(QUrl(uri))
+        if not worker.done:
+            return
+        error, token = worker.take()  # always pop, even for superseded jobs
+        self._github_device_worker = None
+        if worker.gen != self._github_device_gen:
+            return  # superseded sign-in: drop the stale result (B23)
+        self._github_login.setEnabled(True)
+        if error:
+            self._status.setText(f"{i18n.t('settings.github_sign_in_failed')}: {error}")
+            return
+        secrets = self._read(self._secrets_path)
+        secrets["github_api_key"] = token
+        self._write(self._secrets_path, secrets, mode=0o600)
+        self._provider_key.setText(token)
+        self._status.setText(i18n.t("settings.github_signed_in"))
+
+    def _start_github_login(self) -> None:
+        """Kick off the GitHub OAuth device flow (background, B61-safe)."""
+        if self._github_device_worker is not None:
+            return  # one sign-in at a time; the old worker is already running
+        self._github_device_gen += 1
+        worker = _GithubDeviceWorker()
+        worker.gen = self._github_device_gen
+        self._github_device_worker = worker
+        self._github_login.setEnabled(False)
+        self._status.setText(i18n.t("settings.github_device_code"))
+        worker.start()
+        self._poll_timer.start()
 
     def _drain_worker(self, worker_attr: str, gen_attr: str, on_ok, on_fail) -> None:
         worker = getattr(self, worker_attr, None)
@@ -726,6 +827,7 @@ class SettingsWindow(QWidget):
         idx = self._provider_type.findText(ptype_saved)
         self._provider_type.setCurrentIndex(max(0, idx))
         self._provider_type.blockSignals(False)
+        self._github_login.setVisible(self._provider_type.currentText() == "github")
         self._provider_url.setText(provider.get("url", ""))
         self._provider_model.setCurrentText(provider.get("model", ""))
         key_name = PROVIDER_KEY_SECRETS.get(self._provider_type.currentText(), "api_key")

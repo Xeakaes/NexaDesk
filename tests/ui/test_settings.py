@@ -587,6 +587,109 @@ def test_avatar_ai_url_empty_falls_back_to_provider_url(tmp_path):
     win.deleteLater()
 
 
+def test_github_login_button_only_for_github_provider(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._provider_type.setCurrentText("github")
+    assert not win._github_login.isHidden()
+    win._provider_type.setCurrentText("groq")
+    assert win._github_login.isHidden()
+    win.hide()
+    win.deleteLater()
+
+
+def test_github_device_flow_success_writes_secret(tmp_path, monkeypatch):
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from core.auth.github_device import DeviceCode
+    from ui import settings as settings_mod
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._provider_type.setCurrentText("github")
+
+    monkeypatch.setattr(
+        settings_mod,
+        "request_device_code",
+        lambda session=None: DeviceCode("dev", "ABCD-1234", "https://github.com/login/device", 0, 900),
+    )
+    monkeypatch.setattr(
+        settings_mod, "poll_for_token", lambda code, **kw: "gho_testtoken"
+    )
+    monkeypatch.setattr(settings_mod.QDesktopServices, "openUrl", lambda url: True)
+
+    win._start_github_login()
+    worker = win._github_device_worker
+    assert worker is not None
+    assert not win._github_login.isEnabled()
+    deadline = 0
+    while not worker.done and deadline < 200:
+        app.processEvents()
+        deadline += 1
+    win._poll_workers()
+    app.processEvents()
+
+    data = json.loads(secrets.read_text())
+    assert data["github_api_key"] == "gho_testtoken"
+    assert win._provider_key.text() == "gho_testtoken"
+    assert win._github_login.isEnabled()
+    win.hide()
+    win.deleteLater()
+
+
+def test_github_device_flow_failure_leaves_secret_untouched(tmp_path, monkeypatch):
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from core.auth.github_device import DeviceCode, GitHubDeviceError
+    from ui import settings as settings_mod
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._provider_type.setCurrentText("github")
+
+    monkeypatch.setattr(
+        settings_mod,
+        "request_device_code",
+        lambda session=None: DeviceCode("dev", "ABCD-1234", "https://github.com/login/device", 0, 900),
+    )
+
+    def _deny(code, **kw):
+        raise GitHubDeviceError("access denied in the browser")
+
+    monkeypatch.setattr(settings_mod, "poll_for_token", _deny)
+    monkeypatch.setattr(settings_mod.QDesktopServices, "openUrl", lambda url: True)
+
+    win._start_github_login()
+    worker = win._github_device_worker
+    deadline = 0
+    while not worker.done and deadline < 200:
+        app.processEvents()
+        deadline += 1
+    win._poll_workers()
+    app.processEvents()
+
+    data = json.loads(secrets.read_text())
+    assert "github_api_key" not in data
+    win.hide()
+    win.deleteLater()
+
+
 def test_ai_model_dropdown_filters_to_image_models(tmp_path):
     from PySide6.QtWidgets import QApplication
 

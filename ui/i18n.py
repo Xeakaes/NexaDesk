@@ -186,6 +186,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "tr": "Deneysel · resmi olmayan Copilot API'si — hesabınız kısıtlanabilir.",
         "en": "Experimental · unofficial Copilot API — your account may be restricted.",
     },
+    "settings.github_login": {"tr": "GitHub ile giriş yap", "en": "Sign in with GitHub"},
+    "settings.github_device_code": {
+        "tr": "Tarayıcıda şu kodu girin:",
+        "en": "Enter this code in your browser:",
+    },
+    "settings.github_signed_in": {"tr": "GitHub girişi tamam.", "en": "Signed in to GitHub."},
+    "settings.github_sign_in_failed": {
+        "tr": "GitHub girişi başarısız",
+        "en": "GitHub sign-in failed",
+    },
     "settings.sc_host": {"tr": "SC host", "en": "SC host"},
     "settings.sc_port": {"tr": "SC port", "en": "SC port"},
     "settings.sc_key": {"tr": "SC anahtarı", "en": "SC key"},
