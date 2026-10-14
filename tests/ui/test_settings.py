@@ -1248,3 +1248,24 @@ def test_load_fetches_models_for_keyless_provider(tmp_path, monkeypatch):
     assert calls, "catalog fetch must run for a keyless local provider (ollama)"
     win.hide()
     win.deleteLater()
+
+
+def test_provider_type_change_clears_stale_model(tmp_path, monkeypatch):
+    # B64: the previous provider's model id must not survive a type change
+    # ("groq + llama3.2" would 400); the catalog repopulates the box.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    monkeypatch.setattr(win, "_fetch_models", lambda: None)
+    monkeypatch.setattr(win, "_fetch_ai_models", lambda: None)
+    win.load()
+    win._provider_type.setCurrentText("ollama")
+    win._provider_model.setCurrentText("llama3.2")
+    win._provider_type.setCurrentText("groq")
+    assert win._provider_model.currentText().strip() == ""
+    win.hide()
+    win.deleteLater()

@@ -577,6 +577,14 @@ class SettingsWindow(QWidget):
         from core.providers import preset_url
 
         self._provider_url.setText(preset_url(ptype))
+        # B64: same reasoning for the model — keeping "llama3.2" after a
+        # switch to groq sends a request the new catalog never knew.
+        # _on_models_loaded refills from the new catalog (empty current
+        # text means nothing to re-apply). Qt quirk: clear() leaves the
+        # line-edit text behind when the box has no items yet, so reset
+        # the editor explicitly.
+        self._provider_model.clear()
+        self._provider_model.setEditText("")
         self._provider_warning.setVisible(ptype == "github")
         self._github_login.setVisible(ptype == "github")
         self._fetch_models()
