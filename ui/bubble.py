@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -46,8 +45,8 @@ class BubbleWindow(QFrame):
 
         self._transcript = QPlainTextEdit(self)
         self._transcript.setReadOnly(True)
-        font = QFont("Sans Serif", 10)
-        self._transcript.setFont(font)
+        # B75: no hard-coded QFont — load_fonts()/the app font already
+        # applies; a family override here defeated both.
 
         self._activity = QLabel("", self)
         self._activity.setWordWrap(True)

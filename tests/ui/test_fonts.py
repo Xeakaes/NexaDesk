@@ -34,3 +34,14 @@ def test_load_fonts_missing_file_returns_minus_one(tmp_path, monkeypatch):
     app = QApplication.instance() or QApplication([])
     monkeypatch.setattr(ui.fonts, "REGULAR_PATH", tmp_path / "nope.ttf")
     assert ui.fonts.load_fonts(app) == -1
+
+
+def test_bubble_uses_app_font_not_hardcoded_sans():
+    # B75: BubbleWindow overrode the transcript font with a hard-coded
+    # QFont("Sans Serif", 10), defeating load_fonts()/the theme font.
+    import inspect
+
+    from ui.bubble import BubbleWindow
+
+    src = inspect.getsource(BubbleWindow.__init__)
+    assert 'QFont("Sans Serif"' not in src

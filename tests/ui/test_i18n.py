@@ -54,3 +54,15 @@ def test_format_placeholders():
 def test_unknown_language_raises():
     with pytest.raises(ValueError):
         I18n("fr")
+
+
+def test_avatar_boot_failed_key_is_translated():
+    # B75: the avatar boot error was hard-coded Turkish even for English
+    # users ("Agent başlatılamadı: ...").
+    i18n.set_language("en")
+    try:
+        msg = i18n.t("avatar.boot_failed", error="boom")
+        assert "başlatılamadı" not in msg
+        assert "could not start" in msg.lower() or "failed" in msg.lower()
+    finally:
+        i18n.set_language("tr")

@@ -449,7 +449,7 @@ def build_ui() -> App:
         QMessageBox.critical(
             None,
             i18n.t("app.title"),
-            f"Agent başlatılamadı:\n{exc}\n\nAyarları config/ altından kontrol edin.",
+            i18n.t("avatar.boot_failed", error=exc),  # B75: was hard-coded TR
         )
         raise SystemExit(1) from exc
     app.aboutToQuit.connect(ui.runtime.close)

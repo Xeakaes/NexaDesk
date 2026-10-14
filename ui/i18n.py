@@ -250,6 +250,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "tr": "Beni nereye götürüyorsun?",
         "en": "Where are you taking me?",
     },
+    "avatar.boot_failed": {
+        "tr": "Agent başlatılamadı:\n{error}\n\nAyarları config/ altından kontrol edin.",
+        "en": "Agent failed to start:\n{error}\n\nCheck your settings under config/.",
+    },
     "chat.avatar_fallback": {
         "tr": "Avatar '{name}' bozuk — 'base' kullanılıyor",
         "en": "Avatar '{name}' broken — falling back to 'base'",
