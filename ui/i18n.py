@@ -182,6 +182,13 @@ STRINGS: dict[str, dict[str, str]] = {
     "settings.provider_url": {"tr": "URL (boş = varsayılan)", "en": "URL (empty = default)"},
     "settings.provider_model": {"tr": "Model", "en": "Model"},
     "settings.refresh_models": {"tr": "Modelleri getir", "en": "Fetch models"},
+    "settings.test_connection": {"tr": "Bağlantıyı test et", "en": "Test connection"},
+    "settings.test_ok": {"tr": "Bağlantı başarılı", "en": "Connection OK"},
+    "settings.test_fail": {"tr": "Bağlantı başarısız — anahtar/URL'yi kontrol edin", "en": "Connection failed — check the key/URL"},
+    "settings.unsaved_changes": {
+        "tr": "Kaydedilmemiş değişiklikler var. Yok sayıp kapatılsın mı?",
+        "en": "You have unsaved changes. Discard them?",
+    },
     "settings.provider_key": {"tr": "API anahtarı", "en": "API key"},
     "settings.github_unofficial": {
         "tr": "Deneysel · resmi olmayan Copilot API'si — hesabınız kısıtlanabilir.",

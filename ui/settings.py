@@ -372,11 +372,17 @@ class SettingsWindow(QWidget):
         provider_form.addRow(self._lbl_provider_url, self._provider_url)
         provider_form.addRow(self._lbl_provider_model, model_row)
         provider_form.addRow(self._lbl_provider_key, self._provider_key)
+        # B86: a bad key/URL used to only fail later, on the first send.
+        self._btn_test_conn = QPushButton(self)
+        self._btn_test_conn.clicked.connect(self._test_connection)
+        provider_form.addRow("", self._btn_test_conn)
         provider_box = QGroupBox(self)
         provider_box.setLayout(provider_form)
         self._model_worker: _ModelListWorker | None = None
         self._model_fetch_gen = 0  # B23: latest catalog fetch wins
         self._ai_model_worker: _ModelListWorker | None = None
+        self._test_worker: _ModelListWorker | None = None
+        self._test_fetch_gen = 0
         self._btn_refresh_models.clicked.connect(self._fetch_models)
         self._provider_type.currentTextChanged.connect(self._on_provider_type_changed)
         self._github_device_worker: _GithubDeviceWorker | None = None
@@ -508,6 +514,30 @@ class SettingsWindow(QWidget):
         self._poll_timer.timeout.connect(self._poll_workers)
         self._poll_timer.start()
 
+        # B86: closing with unsaved edits silently discarded them.
+        self._dirty = False
+        for w in (
+            self._provider_url, self._provider_key, self._sc_host,
+            self._sc_key, self._ai_url,
+        ):
+            w.textChanged.connect(self._mark_dirty)
+        self._persona.textChanged.connect(self._mark_dirty)
+        for c in (
+            self._provider_type, self._provider_model, self._lang,
+            self._theme, self._mode, self._perm_default, self._avatar,
+            self._ai_model,
+        ):
+            c.currentIndexChanged.connect(self._mark_dirty)
+        self._sc_port.valueChanged.connect(self._mark_dirty)
+        self._provider_model.editTextChanged.connect(self._mark_dirty)
+        for c in self._perm_tools.values():
+            c.currentIndexChanged.connect(self._mark_dirty)
+        for cb in (
+            self._sc_enabled, self._update_check_cb, self._notify_cb,
+            self._close_to_tray_cb,
+        ):
+            cb.toggled.connect(self._mark_dirty)
+
         # B61: one shared, window-parented carrier per pack worker family —
         # created and connected on the UI thread, never destroyed mid-emit.
         self._pack_signals = _PackSignals(self)
@@ -548,6 +578,7 @@ class SettingsWindow(QWidget):
         self._lbl_provider_url.setText(t("settings.provider_url"))
         self._lbl_provider_model.setText(t("settings.provider_model"))
         self._btn_refresh_models.setText(t("settings.refresh_models"))
+        self._btn_test_conn.setText(t("settings.test_connection"))
         self._lbl_provider_key.setText(t("settings.provider_key"))
         self._github_login.setText(t("settings.github_login"))
         self._lbl_sc_host.setText(t("settings.sc_host"))
@@ -599,6 +630,44 @@ class SettingsWindow(QWidget):
         self._github_login.setVisible(ptype == "github")
         self._fetch_models()
         self._fetch_ai_models()
+
+    def _mark_dirty(self, *_a) -> None:
+        self._dirty = True
+
+    def _test_connection(self) -> None:
+        """One-shot provider connectivity check (B86)."""
+        ptype = self._provider_type.currentText()
+        key_name = PROVIDER_KEY_SECRETS.get(ptype, "api_key")
+        secrets = self._read(self._secrets_path)
+        key_value = self._provider_key.text().strip()
+        if key_value:
+            secrets[key_name] = key_value
+        settings = self._read(self._settings_path)
+        settings["provider"] = {
+            "type": ptype,
+            "url": self._provider_url.text().strip(),
+            "model": self._provider_model.currentText().strip(),
+        }
+        self._btn_test_conn.setEnabled(False)
+        self._test_worker = _ModelListWorker(settings, secrets)
+        self._test_fetch_gen += 1
+        self._test_worker.gen = self._test_fetch_gen
+        self._test_worker.start()
+        self._poll_timer.start()
+
+    def _on_test_ok(self, models: list, gen: int | None = None) -> None:
+        self._btn_test_conn.setEnabled(True)
+        # B86: list_models() swallows transport errors and returns [] — for
+        # a connectivity probe an empty catalog means unreachable/bad auth.
+        # (The dropdown fetch keeps the lenient behavior per B63.)
+        if not models:
+            self._on_test_fail(gen)
+            return
+        self._status.setText(i18n.t("settings.test_ok"))
+
+    def _on_test_fail(self, gen: int | None = None) -> None:
+        self._btn_test_conn.setEnabled(True)
+        self._status.setText(i18n.t("settings.test_fail"))
 
     def _fetch_models(self) -> None:
         """Fill the model dropdown from the provider catalog (background)."""
@@ -686,11 +755,16 @@ class SettingsWindow(QWidget):
             "_ai_model_worker", "_ai_fetch_gen",
             self._on_ai_models_loaded, self._on_ai_models_failed,
         )
+        self._drain_worker(
+            "_test_worker", "_test_fetch_gen",
+            self._on_test_ok, self._on_test_fail,
+        )
         self._drain_github_login()
         if (
             self._model_worker is None
             and self._ai_model_worker is None
             and self._github_device_worker is None
+            and self._test_worker is None
         ):
             self._poll_timer.stop()
 
@@ -910,6 +984,7 @@ class SettingsWindow(QWidget):
         self._status.setText(
             i18n.t("settings.read_error", detail=read_err) if read_err else ""
         )
+        self._dirty = False  # B86: populating the form is not an edit
 
     def save(self) -> None:
         settings, settings_err = self._read_report(self._settings_path)
@@ -984,6 +1059,7 @@ class SettingsWindow(QWidget):
         if theme != old.theme:
             self.theme_changed.emit(theme)
         self._status.setText(i18n.t("settings.save_restart_note"))
+        self._dirty = False  # B86
         self.saved.emit()
 
     def show_provider_tab(self) -> None:
@@ -1103,11 +1179,24 @@ class SettingsWindow(QWidget):
                 self._avatar.setCurrentIndex(idx)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        # B86: closing with unsaved edits silently discarded them.
+        if self._dirty:
+            answer = QMessageBox.question(
+                self,
+                i18n.t("settings.unsaved_changes"),
+                i18n.t("settings.unsaved_changes"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+            self._dirty = False
         # B61: stop the poll timer, drop worker refs, and join in-flight
         # fetch threads — exiting while a daemon worker is inside OpenSSL
         # (urllib TLS) races libcrypto's atexit cleanup and segfaults.
         self._poll_timer.stop()
-        for attr in ("_model_worker", "_ai_model_worker"):
+        for attr in ("_model_worker", "_ai_model_worker", "_test_worker"):
             worker = getattr(self, attr, None)
             if worker is not None:
                 worker.wait(500)

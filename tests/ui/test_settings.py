@@ -1478,3 +1478,91 @@ def test_save_contract_full_roundtrip(tmp_path):
 
     win.hide(); win.deleteLater()
     win2.hide(); win2.deleteLater()
+
+
+def test_dirty_flag_set_on_edit_cleared_on_save(tmp_path, monkeypatch):
+    # B86: closing the window with unsaved edits silently discarded them.
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    assert not win._dirty
+    win._provider_url.setText("http://changed.example")
+    assert win._dirty
+    win.save()
+    assert not win._dirty
+    # closeEvent with dirty edits must prompt; monkeypatch to record + deny
+    win._provider_url.setText("http://dirty.example")
+    assert win._dirty
+    prompted = []
+
+    def fake_question(parent, title, text, *a, **k):
+        prompted.append(text)
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(fake_question))
+    from PySide6.QtGui import QCloseEvent
+
+    win.closeEvent(QCloseEvent())
+    assert prompted, "closeEvent with dirty edits must ask before discarding"
+    # answering No keeps the window open (event ignored, dirty intact);
+    # clear dirty so the second closeEvent hides for cleanup
+    win._dirty = False
+    win.closeEvent(QCloseEvent())
+    win.deleteLater()
+
+
+def test_dirty_close_discards_and_hides_on_yes(tmp_path, monkeypatch):
+    # B86: answering Yes discards edits — dirty is cleared so the next close
+    # is silent.
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._provider_url.setText("http://dirty.example")
+    assert win._dirty
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+    from PySide6.QtGui import QCloseEvent
+
+    win.closeEvent(QCloseEvent())
+    assert not win._dirty
+    win.deleteLater()
+
+
+def test_test_connection_reports_failure(tmp_path, monkeypatch):
+    # B86: a bad key/URL used to only fail later, on the first send; the
+    # provider tab must surface it immediately.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._provider_url.setText("http://127.0.0.1:1")  # nothing listens here
+    win._provider_model.setCurrentText("nonexistent")
+    win._test_connection()
+    # the worker is background; drain synchronously for the test
+    if win._test_worker is not None:
+        win._test_worker.wait(5000)
+        win._poll_workers()
+    status = win._status.text()
+    assert status, "test-connection must report a result"
+    assert (
+        "fail" in status.lower()
+        or "başarısız" in status.lower()
+        or "failed" in status.lower()
+    ), status
+    win.deleteLater()
