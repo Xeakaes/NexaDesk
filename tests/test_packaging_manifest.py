@@ -151,3 +151,11 @@ def test_windows_build_ships_notice_and_checks_ocr():
         "windows build must verify the OCR engine is bundled (port of the "
         "linux build_linux.sh guard)"
     )
+
+
+def test_postinstall_refreshes_gtk_icon_cache():
+    # User note (2026-10-14): postinstall only refreshed the desktop
+    # database; some distros show no icon until gtk-update-icon-cache runs.
+    text = (ROOT / "packaging" / "postinstall.sh").read_text()
+    assert "gtk-update-icon-cache" in text
+    assert "command -v gtk-update-icon-cache" in text  # best-effort, like the rest
