@@ -718,3 +718,30 @@ def test_session_picker_closed_widget_is_scheduled_for_deletion(tmp_path):
     b.setParent(None)
     b.deleteLater()
     app.processEvents()
+
+
+def test_tool_failure_shows_summary_in_transcript(tmp_path):
+    # B68: "(Hata)" alone told the user nothing; the runtime payload carries
+    # the reason (summary/error_code) and it must reach the transcript line.
+    from types import SimpleNamespace
+
+    app, win = _make_window(tmp_path)
+    win._runtime = SilentRuntime(win)
+    win._chat_input.setPlainText("is")
+    win._send()
+    sid = win._session_id
+    ev = SimpleNamespace(
+        name="tool_finished",
+        session_id=sid,
+        task_id="t1",
+        payload={
+            "tool_name": "screenshot",
+            "ok": False,
+            "summary": "server_unreachable: no reply on 8745",
+            "error_code": "server_unreachable",
+        },
+    )
+    win._on_event(ev)
+    tool_lines = [m["text"] for m in win._messages if m["role"] == "tool"]
+    assert any("server_unreachable" in line for line in tool_lines), tool_lines
+    win.hide()

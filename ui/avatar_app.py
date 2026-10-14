@@ -295,6 +295,11 @@ class App:
             ok = event.payload.get("ok", "")
             key = "chat.tool_finished_ok" if ok else "chat.tool_finished_fail"
             line = i18n.t(key, name=name)
+            if not ok:
+                # B68: same as the GUI window — carry the reason.
+                summary = str(event.payload.get("summary") or "")
+                if summary and summary != "ok":
+                    line = f"{line}: {summary[:120]}"
             self.bubble.append_message("tool", line)
             self._history.append(self._sid, "tool", line, tool_name=name)
         elif event.name == "assistant_message":

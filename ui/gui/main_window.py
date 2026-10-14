@@ -664,7 +664,15 @@ class ChatWindow(QMainWindow):
             tool = payload.get("tool_name", "")
             ok = bool(payload.get("ok"))
             key = "chat.tool_finished_ok" if ok else "chat.tool_finished_fail"
-            self._signals.tool.emit("tool", i18n.t(key, name=tool), True)
+            line = i18n.t(key, name=tool)
+            if not ok:
+                # B68: "(Hata)" alone tells the user nothing; carry the
+                # runtime's reason into the transcript (truncated for the
+                # bubble, full text in the tooltip).
+                summary = str(payload.get("summary") or "")
+                if summary and summary != "ok":
+                    line = f"{line}: {summary[:120]}"
+            self._signals.tool.emit("tool", line, True)
             self._activity.setText("")
         elif name == "assistant_message":
             text = payload.get("text", "")
