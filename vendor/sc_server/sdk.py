@@ -33,6 +33,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 from typing import Optional
@@ -84,9 +85,21 @@ class ScreenControl:
     
     def _load_local_token(self) -> str:
         """Load token from local .token file."""
-        token_file = Path(__file__).resolve().parent / ".token"
-        if token_file.exists():
-            return token_file.read_text().strip()
+        # B69: the server writes .token into $SCREEN_CONTROL_DATA_DIR (the
+        # config dir the app spawns it with), not next to this module.
+        candidates = []
+        data_dir = os.environ.get("SCREEN_CONTROL_DATA_DIR")
+        if data_dir:
+            candidates.append(Path(data_dir) / ".token")
+        try:
+            from core.paths import config_dir
+
+            candidates.append(config_dir() / ".token")
+        except Exception:
+            pass
+        for token_file in candidates:
+            if token_file.exists():
+                return token_file.read_text().strip()
         raise ScreenControlError("No API key provided and no local .token file found")
     
     def _request(self, method: str, path: str, **kwargs) -> dict:

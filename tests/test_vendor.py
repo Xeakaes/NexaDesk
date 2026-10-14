@@ -202,15 +202,14 @@ def test_ocr_resolves_monitor_for_window(tmp_path, monkeypatch):
     assert last[1][0] == 2 or last[2].get("monitor") == 2
 
 
-def test_sdk_local_token_fallback_reads_sc_server_dir(tmp_path, monkeypatch):
-    # B54: the fallback must read vendor/sc_server/.token (where the server
-    # writes it), not vendor/.token one level too high.
+def test_sdk_local_token_fallback_reads_data_dir(tmp_path, monkeypatch):
+    # B69: the server writes .token to $SCREEN_CONTROL_DATA_DIR (spawned
+    # with config_dir()), so the SDK fallback must read there — never
+    # vendor/sc_server/.token, which only exists in a source-tree server run.
     import vendor.sc_server.sdk as sdk
 
-    srv = tmp_path / "sc_server"
-    srv.mkdir()
-    (srv / ".token").write_text("tok123\n", encoding="utf-8")
-    monkeypatch.setattr(sdk, "__file__", str(srv / "sdk.py"))
+    monkeypatch.setenv("SCREEN_CONTROL_DATA_DIR", str(tmp_path))
+    (tmp_path / ".token").write_text("tok123\n", encoding="utf-8")
     client = sdk.ScreenControl.__new__(sdk.ScreenControl)
     assert client._load_local_token() == "tok123"
 
