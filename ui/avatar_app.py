@@ -343,13 +343,14 @@ class App:
                 msg = i18n.t("chat.error_unauthorized")
             line = f"{i18n.t('chat.error_prefix')} ({code}): {msg}"
             self.bubble.append_message("assistant", line)
-            self._history.append(self._event_sid(event), "assistant", line)
+            # B73: "error" role keeps the line out of seed_session.
+            self._history.append(self._event_sid(event), "error", line)
         elif event.name == "agent_cancelled":
             self._on_finished("")
             self.avatar.set_emotion("neutral")
             line = i18n.t("chat.cancelled")
             self.bubble.append_message("assistant", line)
-            self._history.append(self._event_sid(event), "assistant", line)
+            self._history.append(self._event_sid(event), "error", line)
         elif event.name == "confirmation_requested":
             self.signals.activity.emit(
                 f"▸ {i18n.t('confirmation.pending')}: {event.payload.get('tool_name', '?')}"

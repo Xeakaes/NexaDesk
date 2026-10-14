@@ -813,3 +813,62 @@ def test_retranslate_keeps_collapse_glyph_when_collapsed(tmp_path):
     win.retranslate()
     assert win._collapse_btn.text() == "☰"
     win.hide()
+
+
+def test_error_line_persists_with_error_role_and_stays_out_of_seed(tmp_path):
+    # B73: error/cancel lines were stored as "assistant", so the next
+    # seed_session fed them back to the model as if the assistant said them.
+    from types import SimpleNamespace
+
+    app, win = _make_window(tmp_path)
+
+    class RT:
+        def seed_session(self, sid, pairs):
+            self.seeded = pairs
+
+        def cancel_active_task(self):
+            pass
+
+    win._runtime = RT()
+    win._chat_input.setPlainText("is")
+    # need a real session: use _send path but avoid threading by faking busy
+    from tests.ui.test_chat import FakeRuntime  # noqa: F401 — reuse if present
+
+    win._runtime = type("F", (), {
+        "begin_task": lambda self, sid, text, images=None: "t",
+        "run_task": lambda self, tid: None,
+        "cancel_active_task": lambda self: None,
+        "seed_session": lambda self, sid, pairs: setattr(self, "seeded", pairs),
+    })()
+    win._send()
+    sid = win._session_id
+    ev = SimpleNamespace(name="agent_error", session_id=sid, task_id="t1",
+                         payload={"error_code": "provider_error", "message": "patlak"})
+    win._on_event(ev)
+    roles = [m[0] for m in win._history.messages(sid)]
+    assert "error" in roles, roles
+    # switching away and back must NOT seed the error line to the model
+    win.new_chat()
+    win._load_session(sid)
+    assert all("patlak" not in str(p[1]) for p in win._runtime.seeded)
+    win.hide()
+
+
+def test_cancel_line_persists_with_error_role(tmp_path):
+    from types import SimpleNamespace
+
+    app, win = _make_window(tmp_path)
+    win._runtime = type("F", (), {
+        "begin_task": lambda self, sid, text, images=None: "t",
+        "run_task": lambda self, tid: None,
+        "cancel_active_task": lambda self: None,
+        "seed_session": lambda self, sid, pairs: None,
+    })()
+    win._chat_input.setPlainText("is")
+    win._send()
+    sid = win._session_id
+    ev = SimpleNamespace(name="agent_cancelled", session_id=sid, task_id="t1", payload={})
+    win._on_event(ev)
+    roles = [m[0] for m in win._history.messages(sid)]
+    assert "error" in roles, roles
+    win.hide()

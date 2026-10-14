@@ -549,9 +549,12 @@ class ChatWindow(QMainWindow):
 
     def _append(self, role: str, text: str) -> dict:
         self._empty_state.hide()
-        name = {"user": "msg_user", "assistant": "msg_assistant", "tool": "msg_tool"}.get(
-            role, "msg_assistant"
-        )
+        name = {
+            "user": "msg_user",
+            "assistant": "msg_assistant",
+            "tool": "msg_tool",
+            "error": "msg_error",  # B73
+        }.get(role, "msg_assistant")
         frame = QFrame(self)
         frame.setObjectName(name)
         lbl = QLabel(text, frame)
@@ -757,11 +760,17 @@ class ChatWindow(QMainWindow):
         self._set_busy(False)
         self._activity.setText("")
         line = f"{i18n.t('chat.error_prefix')}: {msg}"
+        # B73: role "error" keeps the line out of seed_session (only
+        # user/assistant are seeded) — the model must not treat its own
+        # failure notice as something it said.
         if session_id is not None:
-            self._history.append(session_id, "assistant", line)
+            self._history.append(session_id, "error", line)
         if session_id == self._session_id:
-            self._append("assistant", line)
+            self._append("error", line)
         self._reload_sessions()
+        # Deliberate: errors notify even when the window is in front
+        # (pinned by test_error_notifies_even_when_active) — unlike
+        # _on_finished, which only notifies in the background.
         self._maybe_notify(i18n.t("notify.task_error_title"), msg)
 
     def _maybe_notify(self, title: str, body: str) -> None:
@@ -779,10 +788,11 @@ class ChatWindow(QMainWindow):
         self._set_busy(False)
         self._activity.setText("")
         line = i18n.t("chat.cancelled")
+        # B73: same reasoning as _on_error — a cancel is not model output.
         if session_id is not None:
-            self._history.append(session_id, "assistant", line)
+            self._history.append(session_id, "error", line)
         if session_id == self._session_id:
-            self._append("assistant", line)
+            self._append("error", line)
 
     def _cancel(self) -> None:
         if self._runtime is not None:

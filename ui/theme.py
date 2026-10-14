@@ -48,6 +48,7 @@ REQUIRED_OBJECTNAMES: tuple[str, ...] = (
     "msg_user",
     "msg_assistant",
     "msg_tool",
+    "msg_error",
     "bubble",
     "settings_win",
     "new_chat",
@@ -88,6 +89,8 @@ QFrame#empty_state {{ background: transparent; border: none; }}
 QFrame#msg_user {{ background: {t['bubble_user']}; border-radius: 14px; }}
 QFrame#msg_assistant {{ background: {t['bubble_assistant']}; border-radius: 14px; }}
 QFrame#msg_tool {{ background: {t['surface_hover']}; border-radius: 10px; }}
+QFrame#msg_error {{ background: {t['surface_hover']}; border: 1px solid {t['danger']};
+    border-radius: 10px; }}
 QPlainTextEdit#chat_input, QLineEdit {{ background: {t['surface']};
     color: {t['fg']}; border: 2px solid {t['input_border']};
     border-radius: 10px; padding: 6px 10px; }}
