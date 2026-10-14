@@ -44,3 +44,20 @@ def test_build_pack_from_state_images_writes_distinct_states(tmp_path):
     thinking = Image.open(out / manifest["states"]["thinking"]["frames"][0]).convert("RGBA")
     assert idle.getpixel((idle.width // 2, idle.height // 2))[:3] == (255, 0, 0)
     assert thinking.getpixel((thinking.width // 2, thinking.height // 2))[:3] == (0, 0, 255)
+
+
+def test_base_frames_have_no_exact_duplicates():
+    # B-ek: the bundled base pack shipped 9 byte-identical PNG twins —
+    # dead weight in every artifact.
+    import hashlib
+
+    from core.paths import assets_dir
+
+    frames = sorted((assets_dir() / "avatars" / "base" / "frames").glob("*.png"))
+    assert frames, "base pack must ship frames"
+    by_hash: dict[str, list] = {}
+    for p in frames:
+        h = hashlib.md5(p.read_bytes()).hexdigest()
+        by_hash.setdefault(h, []).append(p.name)
+    dupes = {h: names for h, names in by_hash.items() if len(names) > 1}
+    assert not dupes, f"duplicate frame files: {dupes}"

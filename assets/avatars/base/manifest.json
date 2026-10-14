@@ -3,27 +3,27 @@
   "credit": "Original NexaDesk mascot, CC0 1.0 (public domain).",
   "states": {
     "idle": {
-      "frames": ["frames/idle_00.png", "frames/idle_01.png", "frames/idle_02.png", "frames/idle_03.png"],
+      "frames": ["frames/idle_00.png", "frames/idle_01.png"],
       "fps": 6,
       "loop": true
     },
     "thinking": {
-      "frames": ["frames/thinking_00.png", "frames/thinking_01.png", "frames/thinking_02.png", "frames/thinking_03.png"],
+      "frames": ["frames/thinking_00.png", "frames/thinking_01.png"],
       "fps": 4,
       "loop": true
     },
     "working": {
-      "frames": ["frames/working_00.png", "frames/working_01.png", "frames/working_02.png", "frames/working_03.png", "frames/working_04.png", "frames/working_05.png"],
+      "frames": ["frames/working_00.png", "frames/working_01.png", "frames/working_02.png", "frames/working_03.png"],
       "fps": 10,
       "loop": true
     },
     "speaking": {
-      "frames": ["frames/speaking_00.png", "frames/speaking_01.png", "frames/speaking_02.png", "frames/speaking_03.png"],
+      "frames": ["frames/speaking_00.png", "frames/speaking_01.png"],
       "fps": 8,
       "loop": true
     },
     "error": {
-      "frames": ["frames/error_00.png", "frames/error_01.png", "frames/error_02.png"],
+      "frames": ["frames/error_00.png", "frames/error_01.png"],
       "fps": 5,
       "loop": false
     }
