@@ -276,9 +276,11 @@ class ChatWindow(QMainWindow):
         self._settings_btn.setText(t("sidebar.settings"))
         self._switch_avatar_btn.setText(t("sidebar.switch_avatar"))
         if self._sidebar_expanded:
-            self._collapse_btn.setText(t("sidebar.collapse"))
+            self._collapse_btn.setText("»")
+            self._collapse_btn.setToolTip(t("sidebar.collapse"))
         else:
-            self._collapse_btn.setText(t("sidebar.expand"))
+            self._collapse_btn.setText("☰")
+            self._collapse_btn.setToolTip(t("sidebar.expand"))
         self._chat_input.setPlaceholderText(t("chat.input_placeholder"))
         self._send_btn.setText(t("chat.send"))
         self._cancel_btn.setText(t("chat.cancel"))
@@ -363,30 +365,30 @@ class ChatWindow(QMainWindow):
             app.setStyleSheet(qss(new))
 
     def _toggle_sidebar(self) -> None:
+        # B71: the collapsed 48px rail cannot hold a text label or the
+        # sessions header — glyphs only, header hidden with the rest.
+        widgets = (
+            self._sessions_header,
+            self._new_chat_btn,
+            self._sessions,
+            self._theme_btn,
+            self._settings_btn,
+            self._switch_avatar_btn,
+        )
         if self._sidebar_expanded:
             self._side_inner.setFixedWidth(48)
-            for w in (
-                self._new_chat_btn,
-                self._sessions,
-                self._theme_btn,
-                self._settings_btn,
-                self._switch_avatar_btn,
-            ):
+            for w in widgets:
                 w.hide()
             self._sidebar_expanded = False
-            self._collapse_btn.setText(i18n.t("sidebar.expand"))
+            self._collapse_btn.setText("☰")  # expand
+            self._collapse_btn.setToolTip(i18n.t("sidebar.expand"))
         else:
             self._side_inner.setFixedWidth(260)
-            for w in (
-                self._new_chat_btn,
-                self._sessions,
-                self._theme_btn,
-                self._settings_btn,
-                self._switch_avatar_btn,
-            ):
+            for w in widgets:
                 w.show()
             self._sidebar_expanded = True
-            self._collapse_btn.setText(i18n.t("sidebar.collapse"))
+            self._collapse_btn.setText("»")  # collapse
+            self._collapse_btn.setToolTip(i18n.t("sidebar.collapse"))
 
     def _switch_to_avatar(self) -> None:
         prefs = load_prefs(self._ui_json_path)

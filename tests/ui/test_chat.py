@@ -786,3 +786,30 @@ def test_on_settings_saved_respawns_screen_control_server(tmp_path, monkeypatch)
     assert calls, "save must trigger maybe_spawn_server"
     assert calls[0]["screen_control"]["port"] == 9001
     win.hide()
+
+
+def test_collapse_sidebar_hides_header_and_shows_glyph(tmp_path):
+    # B71: collapsed sidebar left the "Oturumlar" header visible and kept the
+    # long "Genişlet" label, which overflows the 48px rail. Glyphs instead.
+    app, win = _make_window(tmp_path)
+    win.show()
+    assert win._sidebar_expanded
+    win._toggle_sidebar()
+    assert not win._sidebar_expanded
+    assert win._sessions_header.isHidden()
+    assert win._collapse_btn.text() == "☰"
+    assert win._collapse_btn.width() <= 48
+    win._toggle_sidebar()  # expand again
+    assert win._sidebar_expanded
+    assert not win._sessions_header.isHidden()
+    assert win._collapse_btn.text() == "»"
+    win.hide()
+
+
+def test_retranslate_keeps_collapse_glyph_when_collapsed(tmp_path):
+    # B71: retranslate() used to overwrite the glyph with the long label.
+    app, win = _make_window(tmp_path)
+    win._toggle_sidebar()  # collapse
+    win.retranslate()
+    assert win._collapse_btn.text() == "☰"
+    win.hide()
