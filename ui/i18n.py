@@ -31,10 +31,8 @@ STRINGS: dict[str, dict[str, str]] = {
     "chat.send": {"tr": "Gönder", "en": "Send"},
     "chat.cancel": {"tr": "İptal", "en": "Cancel"},
     "chat.history": {"tr": "Geçmiş", "en": "History"},
-    "chat.tool_activity": {"tr": "Araç etkinliği", "en": "Tool activity"},
     "chat.user_prefix": {"tr": "Sen", "en": "You"},
     "chat.assistant_prefix": {"tr": "Asistan", "en": "Assistant"},
-    "chat.tool_prefix": {"tr": "Araç", "en": "Tool"},
     "chat.cancelled": {"tr": "Görev iptal edildi.", "en": "Task cancelled."},
     "chat.error_prefix": {"tr": "Hata", "en": "Error"},
     "chat.error_rate_limited": {
@@ -91,7 +89,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "{count} file(s) rejected (size/type limit)",
     },
     "chat.attachment": {"tr": "ek", "en": "attachment"},
-    "settings.pack_title": {"tr": "Özel karakter", "en": "Custom character"},
     "settings.pack_pick": {"tr": "Fotoğraf seç…", "en": "Choose photo…"},
     "settings.pack_name": {"tr": "Paket adı", "en": "Pack name"},
     "settings.pack_build": {"tr": "Paketi oluştur", "en": "Build pack"},
@@ -136,10 +133,6 @@ STRINGS: dict[str, dict[str, str]] = {
     "settings.ai_failed": {
         "tr": "AI paketi oluşturulamadı: {error}",
         "en": "AI pack generation failed: {error}",
-    },
-    "settings.ai_fallback": {
-        "tr": "Görsel model yoksa klasik paket oluşturucu çalışır.",
-        "en": "Without an image model the classic pack builder runs instead.",
     },
     "settings.save_restart_note": {
         "tr": "Kaydedildi — izinler için yeniden başlatın",
@@ -211,10 +204,6 @@ STRINGS: dict[str, dict[str, str]] = {
     "settings.perm_default": {"tr": "İzin (*)", "en": "Permission (*)"},
     "settings.save": {"tr": "Kaydet", "en": "Save"},
     "settings.close": {"tr": "Kapat", "en": "Close"},
-    "settings.lang_restart_note": {
-        "tr": "Dil değişikliği uygulandı.",
-        "en": "Language changed.",
-    },
     "menu.settings": {"tr": "Ayarlar…", "en": "Settings…"},
     "menu.chat": {"tr": "Sohbet", "en": "Chat"},
     "menu.avatar": {"tr": "Karakter", "en": "Character"},

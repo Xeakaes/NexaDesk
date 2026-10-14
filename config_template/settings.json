@@ -1,7 +1,5 @@
 {
   "avatar": "base",
-  "language": "tr",
-  "theme": "dark",
   "screen_control": {
     "enabled": true,
     "host": "127.0.0.1",

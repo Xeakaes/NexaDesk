@@ -34,3 +34,30 @@ def test_docs_disclose_update_check():
 def test_docs_disclose_keys_go_to_provider():
     text = _text()
     assert "provider you configured" in text
+
+
+def test_readme_tr_port_wording():
+    # B77: "boşta değilse" (if the port is busy) inverted the real condition.
+    readme = Path(__file__).resolve().parents[1] / "README.md"
+    text = readme.read_text(encoding="utf-8")
+    assert "boşta değilse" not in text
+    assert "boşsa" in text
+
+
+def test_landing_security_claim_matches_default_policy():
+    # B78: the site claimed unlisted tools are "denied by default"; the
+    # actual wildcard default is "ask".
+    text = DOC.read_text(encoding="utf-8").lower()
+    assert "denied by default" not in text
+    assert "default to ask" in text
+
+
+def test_config_template_has_no_dead_keys():
+    # B80: language/theme live in ui.json (UiPrefs), not settings.json —
+    # the template still advertised both as settings keys.
+    import json
+
+    tpl = Path(__file__).resolve().parents[1] / "config_template" / "settings.json"
+    data = json.loads(tpl.read_text(encoding="utf-8"))
+    assert "language" not in data
+    assert "theme" not in data

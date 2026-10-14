@@ -174,7 +174,7 @@ bash packaging/build_linux.sh      # PyInstaller + tar.gz + deb (nfpm gerekir)
 
 ### Ekran kontrolü
 
-Ekran kontrolü istemcisi ve sunucusu `vendor/sc_server/` altında gömülüdür. Uygulama, ekran kontrolü etkinse ve port 8745 boşta değilse kendini `--serve-screen-control` bayrağıyla alt süreç olarak başlatır. Token ve API anahtarları kullanıcı yapılandırma dizininde saklanır.
+Ekran kontrolü istemcisi ve sunucusu `vendor/sc_server/` altında gömülüdür. Uygulama, ekran kontrolü etkinse ve port 8745 boşsa kendini `--serve-screen-control` bayrağıyla alt süreç olarak başlatır. Token ve API anahtarları kullanıcı yapılandırma dizininde saklanır.
 
 ## Teknoloji yığını
 

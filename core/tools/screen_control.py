@@ -171,9 +171,9 @@ SCREEN_CONTROL_TOOL_NAMES = (
 def register_screen_control(
     registry: ToolRegistry,
     client_factory: Callable[[], Any],
-    timeout_s: float = 30.0,
 ) -> None:
-    del timeout_s  # per-call timeout is enforced by the runtime wall clock + SDK HTTP timeout
+    # B80: the old timeout_s parameter was dead (deleted on arrival); the
+    # per-call timeout is enforced by the runtime wall clock + SDK timeout.
     registry.register(_ScreenshotTool(
         "screenshot",
         "Take a screenshot of the desktop and return its file path. "

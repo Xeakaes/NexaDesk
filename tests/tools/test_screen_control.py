@@ -58,9 +58,9 @@ class FakeClient:
         self._maybe_raise()
 
 
-def _registry(client, timeout_s=30.0):
+def _registry(client):
     reg = ToolRegistry()
-    register_screen_control(reg, lambda: client, timeout_s=timeout_s)
+    register_screen_control(reg, lambda: client)
     return reg
 
 
