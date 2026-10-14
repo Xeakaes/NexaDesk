@@ -767,6 +767,9 @@ class ChatWindow(QMainWindow):
     def _on_error(self, msg: str, session_id: str | None) -> None:
         self._active_task_session = None
         self._set_busy(False)
+        # B88: red-dot the tray on failure.
+        if self._tray is not None:
+            self._tray.set_agent_state("error")
         self._activity.setText("")
         line = f"{i18n.t('chat.error_prefix')}: {msg}"
         # B73: role "error" keeps the line out of seed_session (only
@@ -811,6 +814,9 @@ class ChatWindow(QMainWindow):
         self._busy = busy
         self._send_btn.setEnabled(not busy)
         self._cancel_btn.setEnabled(busy)
+        # B88: glanceable agent state in the tray.
+        if self._tray is not None:
+            self._tray.set_agent_state("busy" if busy else "idle")
 
 
 def default_ui_json() -> Path:

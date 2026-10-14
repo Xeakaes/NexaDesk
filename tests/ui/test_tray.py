@@ -109,3 +109,41 @@ def test_notifier_uses_show_message_duck_type():
     tray = FakeTrayObj()
     Notifier(tray=tray).notify("t", "b")
     assert tray.shown == [("t", "b")]
+
+
+def test_tray_agent_state_changes_icon():
+    # B88: the tray icon was static — the user had no glanceable signal that
+    # an agent run was busy or had errored.
+    app = _app()
+    # headless CI has no app icon; set one so the repaint path is exercised
+    from PySide6.QtGui import QColor, QIcon, QPixmap
+
+    pm = QPixmap(16, 16)
+    pm.fill(QColor(30, 100, 200))
+    app.setWindowIcon(QIcon(pm))
+    tray = TrayController()
+    base_key = tray._tray.icon().cacheKey()
+    assert base_key != 0, "test needs a non-null base icon"
+    tray.set_agent_state("busy")
+    busy_key = tray._tray.icon().cacheKey()
+    assert busy_key != base_key, "busy state must repaint the tray icon"
+    tray.set_agent_state("error")
+    error_key = tray._tray.icon().cacheKey()
+    assert error_key != busy_key, "error state must differ from busy"
+    tray.set_agent_state("idle")
+    idle_key = tray._tray.icon().cacheKey()
+    assert idle_key == base_key, "idle must restore the base icon"
+    # menu text is untouched by state changes
+    chat_text = tray._act_chat.text()
+    tray.set_agent_state("busy")
+    assert tray._act_chat.text() == chat_text
+    tray.deleteLater()
+
+
+def test_tray_agent_state_null_icon_is_noop():
+    # B88 guard: a null app icon must not crash the repaint path.
+    app = _app()
+    tray = TrayController()
+    tray.set_agent_state("busy")  # must not raise even if icon is null
+    tray.set_agent_state("error")
+    tray.deleteLater()

@@ -35,6 +35,7 @@ class TrayController(QObject):
         super().__init__(parent)
         app = QApplication.instance()
         icon = app.windowIcon() if app is not None else None
+        self._base_icon = icon if icon is not None and not icon.isNull() else None
         self._tray = QSystemTrayIcon(icon if icon is not None and not icon.isNull() else None)
         menu = QMenu()
         self._act_chat = menu.addAction("")
@@ -50,6 +51,48 @@ class TrayController(QObject):
         self._act_quit.triggered.connect(self.quit_requested)
         self._tray.activated.connect(self._on_activated)
         self.retranslate()
+
+    def set_agent_state(self, state: str) -> None:
+        """Reflect the agent run in the tray icon (B88).
+
+        busy → greyscale, error → red-dot overlay, anything else → base.
+        A null base icon is a no-op (headless / no app icon set).
+        """
+        if self._base_icon is None:
+            return
+        if state == "idle":
+            self._tray.setIcon(self._base_icon)
+            return
+        pixmap = self._base_icon.pixmap(64, 64)
+        if pixmap.isNull():
+            return
+        if state == "busy":
+            from PySide6.QtGui import QColor, QImage
+
+            img = pixmap.toImage().convertToFormat(QImage.Format.Format_ARGB32)
+            for y in range(img.height()):
+                for x in range(img.width()):
+                    c = QColor(img.pixel(x, y))
+                    if c.alpha() == 0:
+                        continue
+                    g = (c.red() + c.green() + c.blue()) // 3
+                    img.setPixelColor(x, y, QColor(g, g, g, c.alpha()))
+            from PySide6.QtGui import QIcon, QPixmap
+
+            self._tray.setIcon(QIcon(QPixmap.fromImage(img)))
+        elif state == "error":
+            from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+
+            out = QPixmap(pixmap)
+            painter = QPainter(out)
+            painter.setBrush(QColor(220, 38, 38))
+            painter.setPen(QColor(255, 255, 255))
+            r = max(4, out.width() // 4)
+            painter.drawEllipse(out.width() - r, 0, r, r)
+            painter.end()
+            self._tray.setIcon(QIcon(out))
+        else:
+            self._tray.setIcon(self._base_icon)
 
     def _on_activated(self, reason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
