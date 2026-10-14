@@ -81,6 +81,11 @@ def _build_runtime_or_none():
     except ConfigError as exc:
         show_config_error(exc)
         return None
+    except ProviderError as exc:
+        # B67: any provider failure that is not a missing key (unknown type,
+        # broken URL) must surface as a dialog — not kill the GUI silently.
+        show_config_error(exc)
+        return None
     return runtime, bus, _session, needs_setup
 
 

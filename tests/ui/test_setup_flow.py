@@ -321,3 +321,22 @@ def test_avatar_app_settings_saved_applies_persona(tmp_path, monkeypatch):
     ui._on_settings_saved()
     assert ui.runtime._config.persona == "You are a pirate."
     ui.close()
+
+
+def test_unknown_provider_type_shows_dialog_not_silent_exit(monkeypatch):
+    # B67: only missing-key ProviderErrors get the setup placeholder; every
+    # other provider failure (bad type, broken URL) used to re-raise out of
+    # _build_runtime_or_none and kill the GUI with no window at all.
+    import ui.app as uapp
+    from core.providers.base import ProviderError
+
+    shown = []
+
+    def boom(*a, **k):
+        raise ProviderError("unknown provider type: bogus", error_code="unknown_provider")
+
+    monkeypatch.setattr(uapp, "show_config_error", shown.append)
+    monkeypatch.setattr(uapp, "build_runtime", boom)
+    assert uapp._build_runtime_or_none() is None
+    assert len(shown) == 1
+    assert "bogus" in str(shown[0])
