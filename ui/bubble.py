@@ -61,8 +61,17 @@ class BubbleWindow(QFrame):
         self._send_btn = QPushButton(self)
         self._send_btn.clicked.connect(self._send)
         self._pending_attachments: list = []
-        self._attach_btn = QPushButton(self)
-        self._attach_btn.clicked.connect(self._pick_attachments)
+        # Backlog 1: compact + button with chips, matching the chat GUI.
+        self._attach_plus = QPushButton("+", self)
+        self._attach_plus.setObjectName("attach_plus")
+        self._attach_plus.setToolTip(i18n.t("chat.attach"))
+        self._attach_plus.setFixedSize(28, 28)
+        self._attach_plus.clicked.connect(self._pick_attachments)
+        self._chip_bar = QWidget(self)
+        self._chip_bar.hide()
+        self._chip_layout = QHBoxLayout(self._chip_bar)
+        self._chip_layout.setContentsMargins(0, 0, 0, 0)
+        self._chip_layout.addStretch(1)
         self._history_btn = QPushButton(self)
         if self._on_history is not None:
             self._history_btn.clicked.connect(self._on_history)
@@ -71,8 +80,8 @@ class BubbleWindow(QFrame):
         self._cancel_btn.setVisible(False)
 
         row = QHBoxLayout()
+        row.addWidget(self._attach_plus)
         row.addWidget(self._input, 1)
-        row.addWidget(self._attach_btn)
         row.addWidget(self._send_btn)
         row.addWidget(self._history_btn)
         row.addWidget(self._cancel_btn)
@@ -80,6 +89,7 @@ class BubbleWindow(QFrame):
         layout = QVBoxLayout(self)
         layout.addWidget(self._transcript, 1)
         layout.addWidget(self._activity)
+        layout.addWidget(self._chip_bar)
         layout.addLayout(row)
 
         from ui.i18n import language_bridge
@@ -91,7 +101,7 @@ class BubbleWindow(QFrame):
     def retranslate(self) -> None:
         self._input.setPlaceholderText(i18n.t("chat.input_placeholder"))
         self._send_btn.setText(i18n.t("chat.send"))
-        self._attach_btn.setText(i18n.t("chat.attach"))
+        self._attach_plus.setToolTip(i18n.t("chat.attach"))
         self._history_btn.setText(i18n.t("chat.history"))
         self._cancel_btn.setText(i18n.t("chat.cancel"))
 
@@ -118,10 +128,25 @@ class BubbleWindow(QFrame):
             self._pending_attachments.append(att)
         if rejected:
             self._activity.setText(i18n.t("chat.attach_rejected", count=rejected))
-        count = len(self._pending_attachments)
-        self._attach_btn.setText(
-            f"{i18n.t('chat.attach')} ({count})" if count else i18n.t("chat.attach")
-        )
+        self._refresh_chips()
+
+    def _refresh_chips(self) -> None:
+        while self._chip_layout.count() > 1:  # keep the trailing stretch
+            item = self._chip_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        for att in list(self._pending_attachments):
+            chip = QPushButton(f"{att.name} ×", self._chip_bar)
+            chip.setObjectName("outline")
+            chip.clicked.connect(lambda _=False, a=att: self._remove_attachment(a))
+            self._chip_layout.insertWidget(self._chip_layout.count() - 1, chip)
+        self._chip_bar.setVisible(bool(self._pending_attachments))
+
+    def _remove_attachment(self, att) -> None:
+        if att in self._pending_attachments:
+            self._pending_attachments.remove(att)
+        self._refresh_chips()
 
     def append_message(self, role: str, text: str) -> None:
         prefix = {
@@ -205,5 +230,5 @@ class BubbleWindow(QFrame):
             if att.kind == "image":
                 prompt = f"{prompt}\n[{i18n.t('chat.attachment')}: {att.name}]".rstrip()
         self._pending_attachments.clear()
-        self._attach_btn.setText(i18n.t("chat.attach"))
+        self._refresh_chips()
         self._on_send(prompt, images)

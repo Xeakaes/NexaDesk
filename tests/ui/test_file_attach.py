@@ -210,3 +210,30 @@ def test_bubble_pick_attachments_reports_rejected_count(monkeypatch, tmp_path):
     bubble._pick_attachments()
     assert "1" in bubble._activity.text()
     bubble.deleteLater()
+
+
+def test_bubble_has_plus_attach_and_chips():
+    # Backlog 1: avatar mode used a text attach button; the chat GUI already
+    # had the compact + button with chips — bring parity.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.attachments import Attachment
+    from ui.bubble import BubbleWindow
+
+    app = QApplication.instance() or QApplication([])
+    b = BubbleWindow(on_send=lambda *a: None, on_cancel=lambda: None)
+    b.show()  # child visibility needs a shown parent
+    plus = getattr(b, "_attach_plus", None)
+    assert plus is not None, "bubble must expose _attach_plus"
+    assert plus.text() == "+"
+    assert plus.toolTip(), "plus button needs a tooltip"
+    # chip API works without opening a dialog
+    fake = Attachment(name="a.png", kind="image", data_uri="data:image/png;base64,x")
+    b._pending_attachments.append(fake)
+    b._refresh_chips()
+    assert b._chip_bar.isVisible(), "chips must show when attachments pending"
+    b._remove_attachment(fake)
+    assert not b._pending_attachments
+    assert not b._chip_bar.isVisible(), "chips hide when empty"
+    b.close()
+    b.deleteLater()
