@@ -9,7 +9,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QTimer, Qt, QUrl, Signal
+from PySide6.QtCore import QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -75,35 +75,32 @@ PROVIDER_KEY_SECRETS = {
 }
 
 
-class _PackSignals(QObject):
-    """Shared signal carrier for pack builds; created parented on the UI thread."""
-
-    succeeded = Signal(str)  # pack name
-    failed = Signal(str, str, str)  # name, kind, detail (B41)
-
-
 class _PackBuildWorker:
-    """Runs build_pack on a plain thread and reports via Qt signals.
+    """Runs build_pack on a plain thread; results ride a SimpleQueue (B61 parity).
 
     A plain ``threading.Thread`` (not ``QThread``) is used deliberately: the
     PySide6 ``QThread`` teardown + queued-signal delivery race segfaults on
-    some CI runners. The signals live on a separate ``QObject`` whose thread
-    affinity is the UI thread, so emitting from the worker thread is queued
-    safely and no Qt object is destroyed mid-delivery.
+    some CI runners. Backlog 2: the earlier cross-thread signal emit had the
+    same segfault class as the model-fetch workers — results are now handed
+    back through a SimpleQueue + Event and drained on the UI thread.
     """
 
-    def __init__(
-        self, src: Path, out: Path, name: str, signals: _PackSignals
-    ) -> None:
-        # B61: the signal carrier is created on the UI thread, parented to
-        # the window, and shared by all jobs — a per-job unparented carrier
-        # destroyed on the worker thread while its queued MetaCall event was
-        # still in flight segfaults (measured 6/6; shared+parented is 0/6).
-        self.signals = signals
+    def __init__(self, src: Path, out: Path, name: str) -> None:
+        self.gen = 0
+        self._queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._done = threading.Event()
         self._src = src
         self._out = out
         self._name = name
         self._thread = threading.Thread(target=self._run, daemon=True)
+
+    @property
+    def done(self) -> bool:
+        return self._done.is_set()
+
+    def take(self) -> tuple:
+        """Pop the result tuple once the worker is done."""
+        return self._queue.get_nowait()
 
     def start(self) -> None:
         self._thread.start()
@@ -120,11 +117,13 @@ class _PackBuildWorker:
             # B41: keep the real reason — "exists" vs everything else, with
             # the PackError text as detail for the status line.
             kind = "exists" if "exists" in str(exc) else "bad_image"
-            self.signals.failed.emit(self._name, kind, str(exc))
+            self._queue.put(("failed", self._name, kind, str(exc)))
         except Exception as exc:  # noqa: BLE001 — surface any failure detail
-            self.signals.failed.emit(self._name, "error", str(exc))
+            self._queue.put(("failed", self._name, "error", str(exc)))
         else:
-            self.signals.succeeded.emit(self._name)
+            self._queue.put(("succeeded", self._name))
+        finally:
+            self._done.set()
 
 
 class _ModelListWorker:
@@ -212,17 +211,8 @@ class _GithubDeviceWorker:
             self._done.set()
 
 
-class _AiPackSignals(QObject):
-    """Shared signal carrier for AI pack builds; parented on the UI thread."""
-
-    progress = Signal(str, int, int)  # state, index, total
-    succeeded = Signal(str)  # pack name
-    failed = Signal(str)  # error text
-    cancelled = Signal()
-
-
 class _AiPackWorker:
-    """Runs build_ai_pack on a plain thread (same pattern as _PackBuildWorker)."""
+    """Runs build_ai_pack on a plain thread; results ride a SimpleQueue (B61 parity)."""
 
     def __init__(
         self,
@@ -231,10 +221,10 @@ class _AiPackWorker:
         name: str,
         model: str,
         client,
-        signals: _AiPackSignals,
     ) -> None:
-        # B61: shared UI-thread parented carrier (see _PackBuildWorker).
-        self.signals = signals
+        self.gen = 0
+        self._queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._done = threading.Event()
         self._src = src
         self._out = out
         self._name = name
@@ -242,6 +232,14 @@ class _AiPackWorker:
         self._client = client
         self._cancel = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
+
+    @property
+    def done(self) -> bool:
+        return self._done.is_set()
+
+    def take(self) -> tuple:
+        """Pop one queued event: progress tuples or a terminal tuple."""
+        return self._queue.get_nowait()
 
     def start(self) -> None:
         self._thread.start()
@@ -260,21 +258,26 @@ class _AiPackWorker:
         def generate(state: str, prompt: str) -> bytes:
             return self._client.generate(self._model, prompt, photo=self._src)
 
+        def progress(state: str, index: int, total: int) -> None:
+            self._queue.put(("progress", state, index, total))
+
         try:
             build_ai_pack(
                 self._src,
                 self._out,
                 self._name,
                 generate,
-                progress=self.signals.progress.emit,
+                progress=progress,
                 cancelled=self._cancel.is_set,
             )
         except AiPackCancelled:
-            self.signals.cancelled.emit()
+            self._queue.put(("cancelled",))
         except Exception as exc:  # noqa: BLE001 — surfaced via the failed slot
-            self.signals.failed.emit(str(exc))
+            self._queue.put(("failed", str(exc)))
         else:
-            self.signals.succeeded.emit(self._name)
+            self._queue.put(("succeeded", self._name))
+        finally:
+            self._done.set()
 
 
 def merge_permissions(existing: dict, default: str, per_tool: dict) -> dict:
@@ -387,6 +390,8 @@ class SettingsWindow(QWidget):
         self._ai_model_worker: _ModelListWorker | None = None
         self._test_worker: _ModelListWorker | None = None
         self._test_fetch_gen = 0
+        self._pack_worker: _PackBuildWorker | None = None
+        self._ai_worker: _AiPackWorker | None = None
         self._btn_refresh_models.clicked.connect(self._fetch_models)
         self._provider_type.currentTextChanged.connect(self._on_provider_type_changed)
         self._github_device_worker: _GithubDeviceWorker | None = None
@@ -542,16 +547,10 @@ class SettingsWindow(QWidget):
         ):
             cb.toggled.connect(self._mark_dirty)
 
-        # B61: one shared, window-parented carrier per pack worker family —
-        # created and connected on the UI thread, never destroyed mid-emit.
-        self._pack_signals = _PackSignals(self)
-        self._pack_signals.succeeded.connect(self._on_pack_built)
-        self._pack_signals.failed.connect(self._on_pack_failed)
-        self._ai_pack_signals = _AiPackSignals(self)
-        self._ai_pack_signals.progress.connect(self._on_ai_progress)
-        self._ai_pack_signals.succeeded.connect(self._on_ai_succeeded)
-        self._ai_pack_signals.failed.connect(self._on_ai_failed)
-        self._ai_pack_signals.cancelled.connect(self._on_ai_cancelled)
+        # Backlog 2: pack/AI workers hand results back via SimpleQueue (B61
+        # parity) — drained on the UI thread in _poll_workers.
+        self._pack_fetch_gen = 0
+        self._ai_pack_fetch_gen = 0
 
         self.load()
         self.retranslate()
@@ -765,14 +764,58 @@ class SettingsWindow(QWidget):
             "_test_worker", "_test_fetch_gen",
             self._on_test_ok, self._on_test_fail,
         )
+        self._drain_pack_worker()
+        self._drain_ai_pack_worker()
         self._drain_github_login()
         if (
             self._model_worker is None
             and self._ai_model_worker is None
             and self._github_device_worker is None
             and self._test_worker is None
+            and self._pack_worker is None
+            and self._ai_worker is None
         ):
             self._poll_timer.stop()
+
+    def _drain_pack_worker(self) -> None:
+        """Backlog 2: classic pack build results, UI-thread drain."""
+        worker = getattr(self, "_pack_worker", None)
+        if worker is None or not worker.done:
+            return
+        item = worker.take()
+        self._pack_worker = None
+        if worker.gen != self._pack_fetch_gen:
+            return  # superseded build (B23 parity): drop the stale result
+        if item[0] == "succeeded":
+            self._on_pack_built(item[1])
+        else:
+            self._on_pack_failed(item[1], item[2], item[3])
+
+    def _drain_ai_pack_worker(self) -> None:
+        """Backlog 2: AI pack events (progress + terminal), UI-thread drain."""
+        worker = getattr(self, "_ai_worker", None)
+        if worker is None:
+            return
+        while True:
+            try:
+                item = worker.take()
+            except Exception:  # queue empty
+                break
+            if item[0] == "progress":
+                if worker.gen == self._ai_pack_fetch_gen:
+                    self._on_ai_progress(item[1], item[2], item[3])
+                continue
+            # terminal event
+            self._ai_worker = None
+            if worker.gen != self._ai_pack_fetch_gen:
+                return  # superseded sign-in: drop the stale result (B23)
+            if item[0] == "succeeded":
+                self._on_ai_succeeded(item[1])
+            elif item[0] == "failed":
+                self._on_ai_failed(item[1])
+            else:
+                self._on_ai_cancelled()
+            return
 
     def _github_error_text(self, err: Exception) -> str:
         """Localized device-flow error text (B87).
@@ -909,10 +952,12 @@ class SettingsWindow(QWidget):
         self.setCursor(Qt.CursorShape.WaitCursor)
         worker = _AiPackWorker(
             Path(src), out, name, model, self._ai_client(),
-            signals=self._ai_pack_signals,
         )
+        self._ai_pack_fetch_gen += 1
+        worker.gen = self._ai_pack_fetch_gen
         self._ai_worker = worker
         worker.start()
+        self._poll_timer.start()
 
     def _cancel_ai_pack(self) -> None:
         worker = getattr(self, "_ai_worker", None)
@@ -1156,9 +1201,12 @@ class SettingsWindow(QWidget):
         # Build on a background thread so the UI stays responsive.
         self._pack_build.setEnabled(False)
         self.setCursor(Qt.CursorShape.WaitCursor)
-        worker = _PackBuildWorker(Path(src), out, name, signals=self._pack_signals)
+        worker = _PackBuildWorker(Path(src), out, name)
+        self._pack_fetch_gen += 1
+        worker.gen = self._pack_fetch_gen
         self._pack_worker = worker
         worker.start()
+        self._poll_timer.start()
 
     def _on_pack_built(self, name: str) -> None:
         self.unsetCursor()

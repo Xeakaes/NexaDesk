@@ -130,3 +130,68 @@ def test_build_ai_pack_never_deletes_preexisting_dir(tmp_path):
 
     assert calls == []
     assert marker.exists()
+
+
+def test_pack_workers_hand_results_via_queue_not_signals(tmp_path):
+    # Backlog 2 / B61 parity: cross-thread signal emits from pack workers
+    # are the same segfault class the model-fetch workers had — results must
+    # ride a SimpleQueue drained on the UI thread.
+    import threading
+    from pathlib import Path
+
+    from PIL import Image
+
+    from ui.settings import _AiPackWorker, _PackBuildWorker
+
+    src = tmp_path / "photo.png"
+    # solid fills get wiped by background removal; use a noisy image that
+    # survives the pipeline
+    import random
+
+    random.seed(0)
+    img = Image.new("RGB", (64, 64))
+    img.putdata(
+        [(random.randint(40, 220), random.randint(40, 220), random.randint(40, 220))
+         for _ in range(64 * 64)]
+    )
+    img.save(src)
+    out = tmp_path / "packs" / "p1"
+
+    w = _PackBuildWorker(Path(src), out, "p1")
+    assert not hasattr(w, "signals") or w.signals is None, (
+        "pack worker must not emit cross-thread signals"
+    )
+    assert hasattr(w, "take"), "pack worker must expose take() for UI drain"
+    w.start()
+    assert w.wait(5000), "pack worker did not finish"
+    assert w.done
+    item = w.take()
+    assert item[0] == "succeeded", item
+
+    # AI worker: same contract, plus a progress queue drained on the UI thread.
+    import io
+
+    def _png_bytes() -> bytes:
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    class FakeClient:
+        def generate(self, model, prompt, photo=None):
+            return _png_bytes()
+
+    ai_out = tmp_path / "packs" / "p2"
+    aw = _AiPackWorker(Path(src), ai_out, "p2", "m", FakeClient())
+    assert not hasattr(aw, "signals") or aw.signals is None
+    assert hasattr(aw, "take"), "AI worker must expose take() for UI drain"
+    aw.start()
+    assert aw.wait(10000), "AI worker did not finish"
+    assert aw.done
+    # drain until terminal
+    terminal = None
+    while True:
+        item = aw.take()
+        if item[0] in ("succeeded", "failed", "cancelled"):
+            terminal = item
+            break
+    assert terminal[0] == "succeeded", terminal

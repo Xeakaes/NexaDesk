@@ -1081,6 +1081,7 @@ def test_build_button_stays_disabled_while_pack_worker_runs(tmp_path, monkeypatc
 def test_pack_failed_signal_carries_detail(tmp_path, monkeypatch):
     # B41: a PackError detail (e.g. "empty after background removal") must
     # reach the status line, not be collapsed to a generic message.
+    # Backlog 2: results ride a SimpleQueue drained on the UI thread.
     from PySide6.QtWidgets import QApplication
 
     from ui.settings import SettingsWindow
@@ -1090,17 +1091,21 @@ def test_pack_failed_signal_carries_detail(tmp_path, monkeypatch):
     win = SettingsWindow(settings, secrets, ui_json)
 
     class W:
-        def __init__(self, *a, signals=None, **k):
-            self.signals = signals
+        def __init__(self, *a, **k):
+            self.gen = 0
+            self.done = True
 
         def start(self):
             pass
+
+        def take(self):
+            return ("failed", "broken", "error", "the pipeline exploded")
 
     monkeypatch.setattr("ui.settings._PackBuildWorker", W)
     win._pack_path.setText(str(tmp_path / "x.png"))
     win._pack_name.setText("broken")
     win._build_pack()
-    win._pack_signals.failed.emit("broken", "error", "the pipeline exploded")
+    win._poll_workers()  # drain the fake worker's queue on the UI thread
     assert "the pipeline exploded" in win._status.text()
     win.hide()
     win.deleteLater()
