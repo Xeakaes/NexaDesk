@@ -502,6 +502,7 @@ def test_stale_model_list_worker_cannot_apply_results(tmp_path, monkeypatch):
     monkeypatch.setattr(sw, "_ModelListWorker", FakeWorker)
     win = SettingsWindow(settings, secrets, ui_json)
     win.load()
+    workers.clear()  # B63: load() now fetches the keyless ollama catalog
     win._provider_type.setCurrentText("github")  # fetch #1 (models + ai)
     win._provider_type.setCurrentText("groq")    # fetch #2 (models + ai)
     # Each type change starts two workers: the provider catalog and the F2
@@ -736,6 +737,7 @@ def test_ai_model_fetch_generation_guard(tmp_path, monkeypatch):
     monkeypatch.setattr(sw, "_ModelListWorker", FakeWorker)
     win = SettingsWindow(settings, secrets, ui_json)
     win.load()
+    workers.clear()  # B63: load() now fetches the keyless ollama catalog
     win._fetch_ai_models()  # fetch #1
     win._fetch_ai_models()  # fetch #2
     assert len(workers) == 2
@@ -1199,5 +1201,50 @@ def test_save_writes_theme_token_not_label(tmp_path):
     raw = json.loads(ui_json.read_text(encoding="utf-8"))
     assert raw["theme"] == "light"
     assert win._theme.currentText() == "Açık"  # label localized, token written
+    win.hide()
+    win.deleteLater()
+
+
+def test_save_omits_empty_provider_model(tmp_path):
+    # B63: an empty model combo must not persist "" — that blocks the
+    # provider default (llama3.2) from applying in create_provider.
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from core.providers import create_provider
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._provider_type.setCurrentText("ollama")
+    win._provider_model.setCurrentText("")
+    win.save()
+    provider = json.loads(settings.read_text(encoding="utf-8"))["provider"]
+    assert "model" not in provider
+    created = create_provider(json.loads(settings.read_text()), {}, None)
+    assert created.model == "llama3.2"  # provider default survives
+    win.hide()
+    win.deleteLater()
+
+
+def test_load_fetches_models_for_keyless_provider(tmp_path, monkeypatch):
+    # B63 second half: Ollama has no secrets key, so the old gate
+    # (`if secrets.get(key_name)`) never fetched its catalog and the box
+    # stayed empty until a manual refresh.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    calls = []
+    monkeypatch.setattr(win, "_fetch_models", lambda: calls.append("models"))
+    monkeypatch.setattr(win, "_fetch_ai_models", lambda: calls.append("ai"))
+    win.load()
+    assert calls, "catalog fetch must run for a keyless local provider (ollama)"
     win.hide()
     win.deleteLater()

@@ -832,7 +832,9 @@ class SettingsWindow(QWidget):
         self._provider_model.setCurrentText(provider.get("model", ""))
         key_name = PROVIDER_KEY_SECRETS.get(self._provider_type.currentText(), "api_key")
         self._provider_key.setText(str(secrets.get(key_name, "")))
-        if secrets.get(key_name):
+        # B63: local Ollama needs no key — gate the catalog fetch on the
+        # provider, not on a secrets entry that will never exist for it.
+        if ptype_saved == "ollama" or secrets.get(key_name):
             self._fetch_models()
             self._fetch_ai_models()
         ai = settings.get("avatar_ai") or {}
@@ -876,7 +878,13 @@ class SettingsWindow(QWidget):
                 self._status.setText(i18n.t("settings.pack_bad_image"))
                 return
         ptype = self._provider_type.currentText()
-        provider = {"type": ptype, "model": self._provider_model.currentText().strip()}
+        # B63: never persist an empty model — "" would shadow the provider
+        # default inside create_provider (key-absent is the only case the
+        # default applies), so the key is omitted instead.
+        provider = {"type": ptype}
+        model = self._provider_model.currentText().strip()
+        if model:
+            provider["model"] = model
         url = self._provider_url.text().strip()
         if url:
             provider["url"] = url
