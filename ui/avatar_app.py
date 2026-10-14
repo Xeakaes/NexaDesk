@@ -81,6 +81,9 @@ class App:
         self._history = HistoryStore(default_db_path())
         self._history.purge_empty_sessions()
         self._sid: str | None = None  # created lazily on first send
+        # B72: the session that owns the running task; late events route
+        # here, not to whatever chat the user is now looking at (B9 parity).
+        self._active_task_session: str | None = None
         avatar_name = self._settings_cache.get("avatar", "base")
         self.avatar = self._make_avatar(avatar_name)
         self.bubble = BubbleWindow(
@@ -236,9 +239,12 @@ class App:
         if self._sid is None:
             self._sid = self._history.create_session()
         self._history.append(self._sid, "user", text)
+        self._active_task_session = self._sid  # B72
         self.bubble.set_busy(True)
         threading.Thread(
-            target=self._run_agent, args=(text, images or None), daemon=True
+            target=self._run_agent,
+            args=(text, images or None, self._sid),
+            daemon=True,
         ).start()
 
     def _on_history(self) -> None:
@@ -267,14 +273,21 @@ class App:
         self.session.seed_session(sid, seed_pairs)
         self.bubble.set_transcript("\n".join(lines))
 
-    def _run_agent(self, text: str, images: list | None = None) -> None:
+    def _run_agent(self, text: str, images: list | None = None,
+                   sid: str | None = None) -> None:
         try:
-            tid = self.runtime.begin_task(self._sid, text, images=images)
+            tid = self.runtime.begin_task(sid or self._sid, text, images=images)
             self.runtime.run_task(tid)
         except Exception as exc:
             self.signals.finished.emit(f"{i18n.t('chat.error_prefix')}: {exc}")
 
+    def _event_sid(self, event) -> str | None:
+        # B72: events carry the owning session; late ones must not land in
+        # whatever chat is on screen now.
+        return getattr(event, "session_id", None) or self._sid
+
     def _on_finished(self, final: str) -> None:
+        self._active_task_session = None  # B72: task over, routing back
         self.bubble.set_busy(False)
         self.bubble.set_tool_activity("")
         if final:
@@ -295,7 +308,7 @@ class App:
             self.signals.activity.emit(i18n.t("chat.activity_running", name=name))
             line = i18n.t("chat.tool_started_line", name=name)
             self.bubble.append_message("tool", line)
-            self._history.append(self._sid, "tool", line, tool_name=name)
+            self._history.append(self._event_sid(event), "tool", line, tool_name=name)
         elif event.name == "tool_finished":
             self.bubble.set_tool_activity("")
             name = event.payload.get("tool_name", "")
@@ -308,12 +321,12 @@ class App:
                 if summary and summary != "ok":
                     line = f"{line}: {summary[:120]}"
             self.bubble.append_message("tool", line)
-            self._history.append(self._sid, "tool", line, tool_name=name)
+            self._history.append(self._event_sid(event), "tool", line, tool_name=name)
         elif event.name == "assistant_message":
             text = event.payload.get("text", "")
             if text:
                 self.bubble.append_message("assistant", text)
-                self._history.append(self._sid, "assistant", text)
+                self._history.append(self._event_sid(event), "assistant", text)
         elif event.name == "assistant_emotion":
             # F1: classified reply emotion → avatar axis (unknown → neutral).
             self.avatar.set_emotion(event.payload.get("emotion", "neutral"))
@@ -330,13 +343,13 @@ class App:
                 msg = i18n.t("chat.error_unauthorized")
             line = f"{i18n.t('chat.error_prefix')} ({code}): {msg}"
             self.bubble.append_message("assistant", line)
-            self._history.append(self._sid, "assistant", line)
+            self._history.append(self._event_sid(event), "assistant", line)
         elif event.name == "agent_cancelled":
             self._on_finished("")
             self.avatar.set_emotion("neutral")
             line = i18n.t("chat.cancelled")
             self.bubble.append_message("assistant", line)
-            self._history.append(self._sid, "assistant", line)
+            self._history.append(self._event_sid(event), "assistant", line)
         elif event.name == "confirmation_requested":
             self.signals.activity.emit(
                 f"▸ {i18n.t('confirmation.pending')}: {event.payload.get('tool_name', '?')}"

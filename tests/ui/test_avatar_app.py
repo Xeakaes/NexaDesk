@@ -319,3 +319,39 @@ def test_avatar_names_include_user_dir(tmp_path, monkeypatch):
     assert "mycustom" in names
     assert "base" in names
     ui.close()
+
+
+def test_avatar_late_events_route_to_task_session(tmp_path, monkeypatch):
+    # B72: mirror of the main window's B9 — a late assistant_message must
+    # land in the session that started the task, not the one now on screen.
+    from core.events import Event
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui._on_send("selam")
+    task_sid = ui._sid
+    other = ui._history.create_session()  # user switches chats mid-task
+    ui._sid = other
+    ev = Event("assistant_message", task_sid, "t1", {"text": "gec yanit"})
+    ui._on_event(ev)
+    msgs_a = [m[1] for m in ui._history.messages(task_sid)]
+    msgs_b = [m[1] for m in ui._history.messages(other)]
+    assert any("gec yanit" in m for m in msgs_a), msgs_a
+    assert not any("gec yanit" in m for m in msgs_b), msgs_b
+    ui.close()
+
+
+def test_avatar_late_tool_events_route_to_task_session(tmp_path, monkeypatch):
+    from core.events import Event
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    ui._on_send("selam")
+    task_sid = ui._sid
+    other = ui._history.create_session()
+    ui._sid = other
+    ev = Event("tool_finished", task_sid, "t1",
+               {"tool_name": "screenshot", "ok": True, "summary": "ok"})
+    ui._on_event(ev)
+    roles_a = [m[0] for m in ui._history.messages(task_sid)]
+    assert "tool" in roles_a, roles_a
+    assert [m[0] for m in ui._history.messages(other)] == []
+    ui.close()
