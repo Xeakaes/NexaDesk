@@ -840,8 +840,8 @@ class SettingsWindow(QWidget):
                 combo.setCurrentText(text)
 
     def load(self) -> None:
-        settings = self._read(self._settings_path)
-        secrets = self._read(self._secrets_path)
+        settings, settings_err = self._read_report(self._settings_path)
+        secrets, secrets_err = self._read_report(self._secrets_path)
         prefs = load_prefs(self._ui_json)
         self._lang.setCurrentIndex(0 if prefs.lang == "tr" else 1)
         self._theme.setCurrentIndex(list(THEMES).index(prefs.theme))
@@ -901,18 +901,22 @@ class SettingsWindow(QWidget):
         self._close_to_tray_cb.setChecked(
             bool((settings.get("tray") or {}).get("close_to_tray", True))
         )
-        self._status.setText("")
+        # B66: form is populated with defaults, but the user must know the
+        # file on disk could not be read (and save() will refuse to touch it).
+        read_err = settings_err or secrets_err
+        self._status.setText(
+            i18n.t("settings.read_error", detail=read_err) if read_err else ""
+        )
 
     def save(self) -> None:
-        settings = self._read(self._settings_path)
-        secrets = self._read(self._secrets_path)
-        # Never overwrite an unreadable secrets file with an empty dict (would wipe keys).
-        if self._secrets_path.exists():
-            try:
-                json.loads(self._secrets_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                self._status.setText(i18n.t("settings.pack_bad_image"))
-                return
+        settings, settings_err = self._read_report(self._settings_path)
+        secrets, secrets_err = self._read_report(self._secrets_path)
+        # B66: never overwrite an unreadable file with an empty dict — that
+        # is silent, total data loss for the user's remaining config.
+        read_err = settings_err or secrets_err
+        if read_err:
+            self._status.setText(i18n.t("settings.read_error", detail=read_err))
+            return
         ptype = self._provider_type.currentText()
         # B63: never persist an empty model — "" would shadow the provider
         # default inside create_provider (key-absent is the only case the
@@ -1118,13 +1122,26 @@ class SettingsWindow(QWidget):
         return sorted(names)
 
     @staticmethod
-    def _read(path: Path) -> dict:
+    def _read_report(path: Path) -> tuple[dict, str | None]:
+        # B66: distinguish "missing" (fine, start empty) from "unreadable"
+        # (must never be overwritten with defaults — that is silent data loss).
         if not path.exists():
-            return {}
+            return {}, None
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            return {}
+            return {}, f"{path.name}: invalid JSON"
+        except OSError as exc:
+            return {}, f"{path.name}: {exc}"
+        if not isinstance(data, dict):
+            return {}, f"{path.name}: expected an object"
+        return data, None
+
+    @staticmethod
+    def _read(path: Path) -> dict:
+        # Tolerant read for call sites that only need best-effort values
+        # (provider catalogs, avatar packs); load()/save() use _read_report.
+        return SettingsWindow._read_report(path)[0]
 
     @staticmethod
     def _write(path: Path, data: dict, mode=None) -> None:

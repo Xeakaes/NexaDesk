@@ -108,6 +108,10 @@ STRINGS: dict[str, dict[str, str]] = {
     "settings.pack_success": {"tr": "Paket oluşturuldu: {name}", "en": "Pack created: {name}"},
     "settings.pack_exists": {"tr": "Bu isim zaten var: {name}", "en": "Name already exists: {name}"},
     "settings.pack_bad_image": {"tr": "Geçersiz veya bozuk görsel.", "en": "Invalid or corrupt image."},
+    "settings.read_error": {
+        "tr": "Ayar dosyası okunamadı, kaydetme iptal edildi: {detail}",
+        "en": "Settings file unreadable, save cancelled: {detail}",
+    },
     "settings.ai_model": {"tr": "AI görsel modeli", "en": "AI image model"},
     "settings.ai_url": {"tr": "AI görsel sunucu", "en": "AI image server"},
     "settings.ai_url_placeholder": {

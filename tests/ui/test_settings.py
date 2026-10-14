@@ -1324,3 +1324,59 @@ def test_permission_row_explicitly_set_survives_default_change(tmp_path):
     assert policy.check("mouse") is PermissionLevel.DENY        # default applied
     win.hide()
     win.deleteLater()
+
+
+def test_save_blocked_when_settings_json_corrupt(tmp_path):
+    # B66: a corrupt settings.json must not be clobbered — save() used to
+    # read {}, write the form defaults over it, and the user's remaining
+    # config was gone without a word.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    settings.write_text("{not json", encoding="utf-8")
+    win.save()
+    assert settings.read_text(encoding="utf-8") == "{not json"
+    assert win._status.text()  # user is told
+    win.hide()
+    win.deleteLater()
+
+
+def test_save_blocked_when_secrets_json_corrupt(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    secrets.write_text("{not json", encoding="utf-8")
+    win.save()
+    assert secrets.read_text(encoding="utf-8") == "{not json"
+    assert settings.read_text(encoding="utf-8") == settings.read_text(encoding="utf-8")
+    assert win._status.text()
+    win.hide()
+    win.deleteLater()
+
+
+def test_load_survives_unreadable_settings_file(tmp_path):
+    # B66: an unreadable file (here: a directory where the file should be)
+    # must not crash load(); the form still opens and the status reports it.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    settings.unlink()
+    settings.mkdir()  # read_text raises IsADirectoryError
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()  # must not raise
+    assert win._status.text()
+    win.hide()
+    win.deleteLater()
