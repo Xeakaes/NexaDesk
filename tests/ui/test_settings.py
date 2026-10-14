@@ -1402,3 +1402,79 @@ def test_screen_control_enabled_checkbox_saved(tmp_path):
     assert data["screen_control"]["enabled"] is False
     win.hide()
     win.deleteLater()
+
+
+# ---------------------------------------------------------------------------
+# B81: save() contract
+# ---------------------------------------------------------------------------
+# One end-to-end save→load cycle pinning every documented save() guarantee.
+# Individual tests above cover each rule in isolation; this catches
+# interactions between them (e.g. a permission change clobbering avatar_ai).
+
+
+def test_save_contract_full_roundtrip(tmp_path):
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+
+    # -- arrange: exercise every contract surface at once --
+    win._theme.setCurrentText("Açık")            # TR label; token must be saved
+    win._provider_type.setCurrentText("groq")
+    win._provider_model.setCurrentText("")        # empty → key omitted (B63)
+    win._provider_key.setText("gsk_test")
+    win._perm_default.setCurrentText("deny")      # cascade + diff-only rows (B65)
+    win._persona.setPlainText("Kısa cevap ver.")
+    win._ai_model.setCurrentText("gpt-image-1")   # avatar_ai preserved
+    win._ai_url.setText("https://ai.example.com")
+    win._sc_host.setText("0.0.0.0")               # loopback clamp
+    win._sc_port.setValue(9001)
+    win._sc_enabled.setChecked(True)
+
+    win.save()
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    prefs_data = json.loads(ui_json.read_text(encoding="utf-8"))
+
+    # -- assert every contract rule on the written files --
+    # theme: stable token in ui.json (UiPrefs), not the localized label
+    assert prefs_data.get("theme") == "light"
+    # provider: empty model key omitted; type + key written
+    provider = data["provider"]
+    assert provider["type"] == "groq"
+    assert "model" not in provider
+    # permissions: default-equal rows not written; wildcard carries the default
+    perms = data["permissions"]
+    assert perms["*"] == "deny"
+    assert "screenshot" not in perms
+    # avatar_ai preserved as its own section
+    assert data["avatar_ai"] == {"model": "gpt-image-1", "url": "https://ai.example.com"}
+    # persona round-trips through agent section; unrelated keys survive
+    assert data["agent"]["persona"] == "Kısa cevap ver."
+    assert data["agent"].get("max_tool_calls", 10) >= 1
+    # screen control: loopback clamp + port + enabled
+    sc = data["screen_control"]
+    assert sc["host"] == "127.0.0.1"
+    assert sc["port"] == 9001
+    assert sc["enabled"] is True
+
+    # -- reload: every value must round-trip into a fresh window --
+    win2 = SettingsWindow(settings, secrets, ui_json)
+    win2.load()
+    assert json.loads(ui_json.read_text(encoding="utf-8")).get("theme") == "light"
+    assert win2._provider_type.currentText() == "groq"
+    assert win2._provider_model.currentText() == ""
+    assert win2._perm_default.currentText() == "deny"
+    assert win2._persona.toPlainText() == "Kısa cevap ver."
+    assert win2._ai_model.currentText() == "gpt-image-1"
+    assert win2._sc_host.text() == "127.0.0.1"
+    assert win2._sc_port.value() == 9001
+    assert win2._sc_enabled.isChecked()
+
+    win.hide(); win.deleteLater()
+    win2.hide(); win2.deleteLater()
