@@ -369,6 +369,10 @@ class SettingsWindow(QWidget):
         self._github_login = QPushButton(self)
         self._github_login.setVisible(False)
         provider_form.addRow("", self._github_login)
+        # B87: copy-to-clipboard for the device-flow user code.
+        self._github_code_btn = QPushButton(self)
+        self._github_code_btn.setVisible(False)
+        provider_form.addRow("", self._github_code_btn)
         provider_form.addRow(self._lbl_provider_url, self._provider_url)
         provider_form.addRow(self._lbl_provider_model, model_row)
         provider_form.addRow(self._lbl_provider_key, self._provider_key)
@@ -628,6 +632,8 @@ class SettingsWindow(QWidget):
         self._provider_model.setEditText("")
         self._provider_warning.setVisible(ptype == "github")
         self._github_login.setVisible(ptype == "github")
+        if ptype != "github":
+            self._github_code_btn.setVisible(False)
         self._fetch_models()
         self._fetch_ai_models()
 
@@ -768,6 +774,25 @@ class SettingsWindow(QWidget):
         ):
             self._poll_timer.stop()
 
+    def _github_error_text(self, err: Exception) -> str:
+        """Localized device-flow error text (B87).
+
+        GitHubDeviceError carries a stable ``code``; matching on the English
+        exception message would break under non-English locales.
+        """
+        code = getattr(err, "code", "generic")
+        key = {
+            "expired_token": "settings.github_err_expired",
+            "access_denied": "settings.github_err_denied",
+            "network": "settings.github_err_network",
+        }.get(code, "settings.github_err_generic")
+        return i18n.t(key)
+
+    def _copy_github_code(self, user_code: str) -> None:
+        from PySide6.QtGui import QGuiApplication
+
+        QGuiApplication.clipboard().setText(user_code)
+
     def _drain_github_login(self) -> None:
         """Surface the user_code immediately; apply the token when ready."""
         worker = self._github_device_worker
@@ -779,6 +804,19 @@ class SettingsWindow(QWidget):
                 self._status.setText(
                     f"{i18n.t('settings.github_device_code')} {user_code}  ({uri})"
                 )
+                # B87: the code was only shown in a label — no way to copy
+                # it without a typo.
+                self._github_code_btn.setVisible(True)
+                self._github_code_btn.setText(
+                    f"{i18n.t('settings.github_copy_code')}: {user_code}"
+                )
+                try:
+                    self._github_code_btn.clicked.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+                self._github_code_btn.clicked.connect(
+                    lambda _=False, c=user_code: self._copy_github_code(c)
+                )
                 if self._github_browser_gen != worker.gen:
                     self._github_browser_gen = worker.gen
                     QDesktopServices.openUrl(QUrl(uri))
@@ -789,8 +827,12 @@ class SettingsWindow(QWidget):
         if worker.gen != self._github_device_gen:
             return  # superseded sign-in: drop the stale result (B23)
         self._github_login.setEnabled(True)
+        self._github_code_btn.setVisible(False)
         if error:
-            self._status.setText(f"{i18n.t('settings.github_sign_in_failed')}: {error}")
+            self._status.setText(
+                f"{i18n.t('settings.github_sign_in_failed')}: "
+                f"{self._github_error_text(error)}"
+            )
             return
         secrets = self._read(self._secrets_path)
         secrets["github_api_key"] = token

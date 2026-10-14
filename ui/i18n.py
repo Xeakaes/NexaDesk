@@ -204,6 +204,23 @@ STRINGS: dict[str, dict[str, str]] = {
         "tr": "GitHub girişi başarısız",
         "en": "GitHub sign-in failed",
     },
+    "settings.github_err_expired": {
+        "tr": "Kodun süresi doldu — yeniden deneyin",
+        "en": "The code expired — start again",
+    },
+    "settings.github_err_denied": {
+        "tr": "Tarayıcıda erişim reddedildi",
+        "en": "Access denied in the browser",
+    },
+    "settings.github_err_network": {
+        "tr": "Ağ hatası — bağlantıyı kontrol edin",
+        "en": "Network error — check your connection",
+    },
+    "settings.github_err_generic": {
+        "tr": "Bilinmeyen hata",
+        "en": "Unknown error",
+    },
+    "settings.github_copy_code": {"tr": "Kodu kopyala", "en": "Copy code"},
     "settings.sc_host": {"tr": "SC host", "en": "SC host"},
     "settings.sc_port": {"tr": "SC port", "en": "SC port"},
     "settings.sc_key": {"tr": "SC anahtarı", "en": "SC key"},

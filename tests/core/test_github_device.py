@@ -159,3 +159,29 @@ def test_poll_raises_on_deadline():
             deadline_s=5,
             _now=lambda: next(ticks),
         )
+
+
+def test_device_error_carries_code_attribute():
+    # B87: the UI needs a stable code to pick the localized message —
+    # matching on the English exception text breaks under lang=tr.
+    session = FakeSession([FakeResponse({"error": "expired_token"})])
+    with pytest.raises(GitHubDeviceError) as exc:
+        poll_for_token(
+            DeviceCode("dev123", "ABCD-1234", "u", 5, 900),
+            session=session,
+            sleep=lambda s: None,
+        )
+    assert exc.value.code == "expired_token"
+
+    session = FakeSession([FakeResponse({"error": "access_denied"})])
+    with pytest.raises(GitHubDeviceError) as exc:
+        poll_for_token(
+            DeviceCode("dev123", "ABCD-1234", "u", 5, 900),
+            session=session,
+            sleep=lambda s: None,
+        )
+    assert exc.value.code == "access_denied"
+
+    from core.auth.github_device import GitHubDeviceError as G
+
+    assert G("boom").code == "generic"

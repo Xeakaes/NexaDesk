@@ -1566,3 +1566,49 @@ def test_test_connection_reports_failure(tmp_path, monkeypatch):
         or "failed" in status.lower()
     ), status
     win.deleteLater()
+
+
+def test_github_device_error_is_localized(tmp_path, monkeypatch):
+    # B87: the raw English exception text ("the code expired — start again")
+    # leaked into the status line regardless of language.
+    from core.auth.github_device import GitHubDeviceError
+
+    from ui.settings import SettingsWindow
+
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    import ui.i18n as i18n_mod
+
+    i18n_mod.i18n.set_language("tr")
+    try:
+        err = GitHubDeviceError("the code expired — start again")
+        err.code = "expired_token"
+        msg = win._github_error_text(err)
+        assert "süre" in msg.lower() or "doldu" in msg.lower() or "yeniden" in msg.lower(), msg
+        assert "expired" not in msg.lower(), msg
+    finally:
+        i18n_mod.i18n.set_language("tr")
+    win.deleteLater()
+
+
+def test_github_device_code_copy_button(tmp_path, monkeypatch):
+    # B87: the user code was only shown in a QLabel — no way to copy it
+    # without a typo.
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._copy_github_code("ABCD-1234")
+    from PySide6.QtGui import QGuiApplication
+
+    clip = QGuiApplication.clipboard().text()
+    assert clip == "ABCD-1234"
+    win.deleteLater()

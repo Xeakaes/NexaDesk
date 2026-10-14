@@ -22,7 +22,15 @@ _GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 
 
 class GitHubDeviceError(Exception):
-    """Device-flow step failed (network, denial, expiry, or deadline)."""
+    """Device-flow step failed (network, denial, expiry, or deadline).
+
+    B87: ``code`` is a stable token the UI maps to a localized message —
+    matching on the English exception text breaks under non-English locales.
+    """
+
+    def __init__(self, message: str, code: str = "generic") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass
@@ -54,7 +62,10 @@ def request_device_code(session: requests.Session | None = None) -> DeviceCode:
         timeout=30.0,
     )
     if resp.status_code >= 400:
-        raise GitHubDeviceError(f"device code request failed (HTTP {resp.status_code})")
+        raise GitHubDeviceError(
+            f"device code request failed (HTTP {resp.status_code})",
+            code="network",
+        )
     data = _response_payload(resp)
     try:
         return DeviceCode(
@@ -68,7 +79,8 @@ def request_device_code(session: requests.Session | None = None) -> DeviceCode:
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise GitHubDeviceError(
-            "device code request returned a malformed response"
+            "device code request returned a malformed response",
+            code="network",
         ) from exc
 
 
@@ -86,7 +98,9 @@ def poll_for_token(
     deadline = _now() + (deadline_s if deadline_s is not None else code.expires_in)
     while True:
         if _now() >= deadline:
-            raise GitHubDeviceError("sign-in timed out — start again")
+            raise GitHubDeviceError(
+                "sign-in timed out — start again", code="expired_token"
+            )
         resp = sess.post(
             _ACCESS_TOKEN_URL,
             data={
@@ -99,7 +113,8 @@ def poll_for_token(
         )
         if resp.status_code >= 400:
             raise GitHubDeviceError(
-                f"token poll failed (HTTP {resp.status_code})"
+                f"token poll failed (HTTP {resp.status_code})",
+                code="network",
             )
         data = _response_payload(resp)
         token = data.get("access_token")
@@ -114,7 +129,13 @@ def poll_for_token(
             sleep(interval)
             continue
         if error == "access_denied":
-            raise GitHubDeviceError("access denied in the browser")
+            raise GitHubDeviceError(
+                "access denied in the browser", code="access_denied"
+            )
         if error == "expired_token":
-            raise GitHubDeviceError("the code expired — start again")
-        raise GitHubDeviceError(error or "unexpected token poll response")
+            raise GitHubDeviceError(
+                "the code expired — start again", code="expired_token"
+            )
+        raise GitHubDeviceError(
+            error or "unexpected token poll response", code="generic"
+        )
