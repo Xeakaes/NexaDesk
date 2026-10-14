@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -116,6 +117,12 @@ class ChatWindow(QMainWindow):
         self._new_chat_btn.clicked.connect(self.new_chat)
         self._sessions_header = QLabel(self)
         self._sessions_header.setObjectName("sessions_header")
+        # Backlog 4: filter box above the session list — with many sessions
+        # the flat list is hard to navigate.
+        self._session_search = QLineEdit(self)
+        self._session_search.setClearButtonEnabled(True)
+        self._session_search.setPlaceholderText(i18n.t("sessions.search"))
+        self._session_search.textChanged.connect(self._reload_sessions)
         self._sessions = QListWidget(self)
         self._sessions.itemClicked.connect(self._on_session_click)
         self._theme_btn = QPushButton(self)
@@ -130,6 +137,7 @@ class ChatWindow(QMainWindow):
         side_layout = QVBoxLayout()
         side_layout.addWidget(self._new_chat_btn)
         side_layout.addWidget(self._sessions_header)
+        side_layout.addWidget(self._session_search)
         side_layout.addWidget(self._sessions, 1)
         side_layout.addWidget(self._theme_btn)
         side_layout.addWidget(self._settings_btn)
@@ -473,10 +481,17 @@ class ChatWindow(QMainWindow):
         self._messages.clear()
         self._empty_state.show()
 
-    def _reload_sessions(self) -> None:
+    def _reload_sessions(self, query: str | None = None) -> None:
+        # Backlog 4: optional title filter (wired to the search box).
+        if query is None:
+            query = self._session_search.text()
+        needle = (query or "").strip().lower()
         self._sessions.clear()
         for sid, title, _ts in self._history.list_sessions():
-            item = QListWidgetItem(title or sid[:8])
+            label = title or sid[:8]
+            if needle and needle not in label.lower():
+                continue
+            item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, sid)
             self._sessions.addItem(item)
 

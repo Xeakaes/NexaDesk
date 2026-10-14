@@ -899,3 +899,33 @@ def test_input_blocked_failure_includes_uinput_hint(tmp_path):
     tool_lines = [m["text"] for m in win._messages if m["role"] == "tool"]
     assert any("uinput" in line.lower() for line in tool_lines), tool_lines
     win.hide()
+
+
+def test_session_search_filters_by_title(tmp_path):
+    # Backlog 4: with many sessions the flat list is hard to navigate —
+    # a filter box above the list narrows it by title.
+    app, win = _make_window(tmp_path)
+    h = win._history
+    sid_a = h.create_session()
+    h.append(sid_a, "user", "toplantı notları")
+    h.append(sid_a, "assistant", "tamam")
+    sid_b = h.create_session()
+    h.append(sid_b, "user", "fatura ödeme")
+    h.append(sid_b, "assistant", "ödendi")
+    win._reload_sessions()
+    assert win._sessions.count() == 2
+
+    search = getattr(win, "_session_search", None)
+    assert search is not None, "window must expose a _session_search filter box"
+    search.setText("toplantı")
+    assert win._sessions.count() == 1, (
+        f"filter must narrow to matching titles, got {win._sessions.count()}"
+    )
+    visible = win._sessions.item(0)
+    assert "toplantı" in visible.text()
+    search.setText("fatura")
+    assert win._sessions.count() == 1
+    assert "fatura" in win._sessions.item(0).text()
+    search.setText("")  # clear restores all
+    assert win._sessions.count() == 2
+    win.hide()

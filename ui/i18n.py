@@ -280,6 +280,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Avatar '{name}' selected — restart to apply",
     },
     "sessions.delete": {"tr": "Sohbeti sil", "en": "Delete chat"},
+    "sessions.search": {"tr": "Sohbetlerde ara…", "en": "Search chats…"},
     "sessions.delete_confirm": {
         "tr": "'{title}' sohbeti kalıcı olarak silinsin mi?",
         "en": "Permanently delete the '{title}' chat?",
