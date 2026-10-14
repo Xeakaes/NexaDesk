@@ -32,6 +32,8 @@ tar -xzf NexaDesk_<version>_linux_amd64.tar.gz
 ./NexaDesk/NexaDesk
 ```
 
+> **Screen control note:** keyboard/mouse tools need `/dev/uinput` access (add your user to the `input` group, or run under X11 — Wayland blocks synthetic input without it).
+
 ### Windows (`.zip`)
 
 Extract `NexaDesk_<version>_windows_x64.zip` and run `NexaDesk.exe`.
@@ -124,6 +126,8 @@ sudo dpkg -i NexaDesk_<sürüm>_amd64.deb
 tar -xzf NexaDesk_<sürüm>_linux_amd64.tar.gz
 ./NexaDesk/NexaDesk
 ```
+
+> **Ekran kontrolü notu:** klavye/fare araçları `/dev/uinput` erişimi ister (kullanıcınızı `input` grubuna ekleyin ya da X11 altında çalıştırın — Wayland sentetik girişi engeller).
 
 ### Windows (`.zip`)
 

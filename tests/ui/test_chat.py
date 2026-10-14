@@ -872,3 +872,30 @@ def test_cancel_line_persists_with_error_role(tmp_path):
     roles = [m[0] for m in win._history.messages(sid)]
     assert "error" in roles, roles
     win.hide()
+
+
+def test_input_blocked_failure_includes_uinput_hint(tmp_path):
+    # B84: an INPUT_BLOCKED failure (no /dev/uinput on Wayland) used to read
+    # like a generic tool error; the user needs the permission/X11 hint.
+    from types import SimpleNamespace
+
+    app, win = _make_window(tmp_path)
+    win._runtime = SilentRuntime(win)
+    win._chat_input.setPlainText("type hello")
+    win._send()
+    sid = win._session_id
+    ev = SimpleNamespace(
+        name="tool_finished",
+        session_id=sid,
+        task_id="t1",
+        payload={
+            "tool_name": "type_text",
+            "ok": False,
+            "summary": "API error 403: {'error': {'code': 'INPUT_BLOCKED', ...}}",
+            "error_code": "tool_exception",
+        },
+    )
+    win._on_event(ev)
+    tool_lines = [m["text"] for m in win._messages if m["role"] == "tool"]
+    assert any("uinput" in line.lower() for line in tool_lines), tool_lines
+    win.hide()

@@ -691,6 +691,11 @@ class ChatWindow(QMainWindow):
                 summary = str(payload.get("summary") or "")
                 if summary and summary != "ok":
                     line = f"{line}: {summary[:120]}"
+                # B84: an INPUT_BLOCKED failure needs the uinput/X11 hint —
+                # "permission denied" alone doesn't tell the user the fix.
+                code = str(payload.get("error_code") or "")
+                if "INPUT_BLOCKED" in code or "INPUT_BLOCKED" in summary or "403" in summary:
+                    line = f"{line} — {i18n.t('chat.error_input_blocked')}"
             self._signals.tool.emit("tool", line, True)
             self._activity.setText("")
         elif name == "assistant_message":

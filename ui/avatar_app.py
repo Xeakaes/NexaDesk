@@ -328,6 +328,10 @@ class App:
                 summary = str(event.payload.get("summary") or "")
                 if summary and summary != "ok":
                     line = f"{line}: {summary[:120]}"
+                # B84: same hint as the GUI window.
+                code = str(event.payload.get("error_code") or "")
+                if "INPUT_BLOCKED" in code or "INPUT_BLOCKED" in summary or "403" in summary:
+                    line = f"{line} — {i18n.t('chat.error_input_blocked')}"
             self.bubble.append_message("tool", line)
             self._history.append(self._event_sid(event), "tool", line, tool_name=name)
         elif event.name == "assistant_message":

@@ -230,6 +230,10 @@ STRINGS: dict[str, dict[str, str]] = {
     "chat.tool_started_line": {"tr": "{name} başladı", "en": "{name} started"},
     "chat.tool_finished_ok": {"tr": "{name} bitti (Tamam)", "en": "{name} done (OK)"},
     "chat.tool_finished_fail": {"tr": "{name} bitti (Hata)", "en": "{name} done (Error)"},
+    "chat.error_input_blocked": {
+        "tr": "uinput izni gerekli — Linux'ta /dev/uinput erişimi verin ya da X11'e geçin",
+        "en": "uinput permission required — grant /dev/uinput access on Linux or switch to X11",
+    },
     "chat.activity_running": {"tr": "▸ {name} çalışıyor…", "en": "▸ {name} running…"},
     "chat.vision_disabled": {
         "tr": "Model görüntüleri desteklemiyor — sohbet görüntüler olmadan sürüyor.",
