@@ -156,6 +156,13 @@ class App:
         )
         settings = load_settings(self.settings_path)
         self.runtime.set_persona(str((settings.get("agent") or {}).get("persona", "")))
+        # B70: mirror the main window — a saved port/enabled change respawns.
+        try:
+            from app_entry.entry import maybe_spawn_server
+
+            maybe_spawn_server(settings)
+        except Exception as exc:
+            print(f"screen-control spawn skipped: {exc}", file=sys.stderr)
         if configured and self._needs_provider_setup:
             self._needs_provider_setup = False
             self.bubble.append_message("tool", i18n.t("setup.provider_ready"))

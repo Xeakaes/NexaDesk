@@ -394,10 +394,15 @@ class SettingsWindow(QWidget):
         self._sc_port.setRange(1, 65535)
         self._sc_key = QLineEdit(self)
         self._sc_key.setEchoMode(QLineEdit.EchoMode.Password)
+        # B70: screen_control.enabled existed in the schema but the GUI had
+        # no switch for it — a server could not be turned off from Settings.
+        self._sc_enabled = QCheckBox(self)
         sc_form = QFormLayout()
         self._lbl_sc_host = QLabel(self)
         self._lbl_sc_port = QLabel(self)
         self._lbl_sc_key = QLabel(self)
+        self._lbl_sc_enabled = QLabel(self)
+        sc_form.addRow(self._lbl_sc_enabled, self._sc_enabled)
         sc_form.addRow(self._lbl_sc_host, self._sc_host)
         sc_form.addRow(self._lbl_sc_port, self._sc_port)
         sc_form.addRow(self._lbl_sc_key, self._sc_key)
@@ -552,6 +557,7 @@ class SettingsWindow(QWidget):
         self._lbl_sc_host.setText(t("settings.sc_host"))
         self._lbl_sc_port.setText(t("settings.sc_port"))
         self._lbl_sc_key.setText(t("settings.sc_key"))
+        self._lbl_sc_enabled.setText(t("settings.sc_enabled"))
         self._lbl_perm_default.setText(t("settings.perm_default"))
         self._lbl_avatar.setText(t("settings.section_avatar"))
         self._lbl_pack_photo.setText(t("settings.pack_pick"))
@@ -868,6 +874,7 @@ class SettingsWindow(QWidget):
         self._ai_url.setText(str(ai.get("url") or ""))
         self._ai_model.setCurrentText(str(ai.get("model", "")))
         sc = settings.get("screen_control") or {}
+        self._sc_enabled.setChecked(bool(sc.get("enabled", True)))
         self._sc_host.setText(sc.get("host", "127.0.0.1"))
         self._sc_port.setValue(int(sc.get("port", 8745)))
         self._sc_key.setText(secrets.get("screen_control_api_key", ""))
@@ -933,6 +940,7 @@ class SettingsWindow(QWidget):
         host = self._sc_host.text().strip() or "127.0.0.1"
         if host not in ("127.0.0.1", "localhost"):
             host = "127.0.0.1"  # docs promise loopback-only; clamp, never expose to LAN
+        sc["enabled"] = self._sc_enabled.isChecked()  # B70
         sc["host"] = host
         sc["port"] = int(self._sc_port.value())
         settings["screen_control"] = sc

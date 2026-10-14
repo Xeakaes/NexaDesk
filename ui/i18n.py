@@ -203,6 +203,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "settings.sc_host": {"tr": "SC host", "en": "SC host"},
     "settings.sc_port": {"tr": "SC port", "en": "SC port"},
     "settings.sc_key": {"tr": "SC anahtarı", "en": "SC key"},
+    "settings.sc_enabled": {"tr": "Ekran kontrolü etkin", "en": "Screen control enabled"},
     "settings.perm_default": {"tr": "İzin (*)", "en": "Permission (*)"},
     "settings.save": {"tr": "Kaydet", "en": "Save"},
     "settings.close": {"tr": "Kapat", "en": "Close"},

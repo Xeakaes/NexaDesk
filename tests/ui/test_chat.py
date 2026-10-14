@@ -745,3 +745,44 @@ def test_tool_failure_shows_summary_in_transcript(tmp_path):
     tool_lines = [m["text"] for m in win._messages if m["role"] == "tool"]
     assert any("server_unreachable" in line for line in tool_lines), tool_lines
     win.hide()
+
+
+def test_on_settings_saved_respawns_screen_control_server(tmp_path, monkeypatch):
+    # B70: a saved port change must reach maybe_spawn_server — otherwise a
+    # moved server keeps answering on the old port forever.
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from core.agent.config import AgentConfig
+    from core.agent.runtime import AgentRuntime
+    from core.events import EventBus
+    from core.session.store import SessionStore
+    from core.tools.registry import PermissionPolicy, ToolRegistry
+    from tests.fakes import FakeProvider
+    from ui.gui.main_window import ChatWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({
+        "screen_control": {"enabled": True, "host": "127.0.0.1", "port": 9001},
+        "agent": {"persona": "x"},
+    }))
+    secrets = tmp_path / "secrets.json"
+    secrets.write_text(json.dumps({}))
+    rt = AgentRuntime(
+        FakeProvider([]), ToolRegistry(), PermissionPolicy({"*": "allow"}),
+        EventBus(), SessionStore(), AgentConfig(),
+    )
+    win = ChatWindow(
+        runtime=rt, history=HistoryStore(tmp_path / "h.db"),
+        settings_path=settings, secrets_path=secrets,
+    )
+    calls = []
+    import app_entry.entry as entry_mod
+
+    monkeypatch.setattr(entry_mod, "maybe_spawn_server", lambda s: calls.append(s))
+    win._on_settings_saved()
+    assert calls, "save must trigger maybe_spawn_server"
+    assert calls[0]["screen_control"]["port"] == 9001
+    win.hide()

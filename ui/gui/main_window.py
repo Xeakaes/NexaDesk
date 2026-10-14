@@ -442,6 +442,16 @@ class ChatWindow(QMainWindow):
 
         apply_screen_control(self._runtime, self._settings_path, self._secrets_path)
         reload_provider(self._runtime, self._settings_path, self._secrets_path)
+        # B70: a saved port/host/enabled change must reach the server spawn —
+        # otherwise a moved server keeps answering on the old port forever.
+        try:
+            import sys
+
+            from app_entry.entry import maybe_spawn_server
+
+            maybe_spawn_server(settings)
+        except Exception as exc:
+            print(f"screen-control spawn skipped: {exc}", file=sys.stderr)
 
     # --- sessions ---
 

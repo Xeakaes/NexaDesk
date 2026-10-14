@@ -1380,3 +1380,25 @@ def test_load_survives_unreadable_settings_file(tmp_path):
     assert win._status.text()
     win.hide()
     win.deleteLater()
+
+
+def test_screen_control_enabled_checkbox_saved(tmp_path):
+    # B70: the report asked for a real on/off switch — screen_control.enabled
+    # existed in the schema but nothing in the GUI could set it.
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    assert win._sc_enabled.isChecked()          # default True
+    win._sc_enabled.setChecked(False)
+    win.save()
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    assert data["screen_control"]["enabled"] is False
+    win.hide()
+    win.deleteLater()
