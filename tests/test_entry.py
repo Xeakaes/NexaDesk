@@ -12,7 +12,11 @@ def test_version_flag_prints(capsys, monkeypatch, tmp_path):
     monkeypatch.delenv("APP_VERSION", raising=False)
     monkeypatch.setattr(entry, "_version_file", lambda: tmp_path / "_version.txt")
     assert entry.main(["--version"]) == 0
-    assert "0.0.0" in capsys.readouterr().out
+    # Source-run fallback is core.__version__ (the release version), not
+    # the old "0.0.0" that made is_newer() always True (update-banner bug).
+    from core import __version__
+
+    assert __version__ in capsys.readouterr().out
 
 
 def test_version_reads_bundled_file(capsys, monkeypatch, tmp_path):

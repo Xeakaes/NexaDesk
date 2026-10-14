@@ -131,3 +131,16 @@ class _FakeSession:
                 return {"tag_name": tag} if tag else {}
 
         return R()
+
+
+def test_core_version_is_not_zero_for_source_runs():
+    # B-new (user note): _version.txt is gitignored, so source checkouts fall
+    # back to core.__version__ — which was "0.0.0", making is_newer() always
+    # True and the update banner show on every launch.
+    import core
+    from core.update_check import is_newer, parse_version
+
+    assert parse_version(core.__version__) is not None
+    assert tuple(int(p) for p in core.__version__.split(".")) > (0, 0, 0)
+    # the current release tag must not look newer than the source version
+    assert not is_newer("v0.2.4", core.__version__)
