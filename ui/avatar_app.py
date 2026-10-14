@@ -434,10 +434,31 @@ class App:
         self.bubble.append_message("tool", i18n.t("chat.avatar_selected", name=name))
 
     def quit(self) -> None:
-        self.runtime.close()
+        self._shutdown()
         QApplication.quit()
 
     def close(self) -> None:
+        self._shutdown()
+
+    def _shutdown(self) -> None:
+        """Backlog 3: join in-flight workers and stop timers before exit —
+        a live pack worker racing libcrypto's atexit cleanup segfaults
+        frozen builds (same path as SettingsWindow.closeEvent)."""
+        try:
+            self.bridge.close()
+        except Exception:
+            pass
+        sw = getattr(self, "settings_win", None)
+        if sw is not None:
+            timer = getattr(sw, "_poll_timer", None)
+            if timer is not None:
+                timer.stop()
+            for attr in ("_model_worker", "_ai_model_worker", "_test_worker",
+                         "_pack_worker", "_ai_worker"):
+                worker = getattr(sw, attr, None)
+                if worker is not None:
+                    worker.wait(500)
+                    setattr(sw, attr, None)
         self.runtime.close()
 
 

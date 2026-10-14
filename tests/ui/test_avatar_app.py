@@ -59,7 +59,10 @@ def _make_app(tmp_path, monkeypatch, runtime=None):
 
     class FakeSettingsWin:
         def __init__(self, *a, **k):
-            pass
+            from PySide6.QtCore import QTimer
+
+            self._poll_timer = QTimer()
+            self._poll_timer.setInterval(100)
 
         def load(self):
             pass
@@ -355,3 +358,49 @@ def test_avatar_late_tool_events_route_to_task_session(tmp_path, monkeypatch):
     assert "tool" in roles_a, roles_a
     assert [m[0] for m in ui._history.messages(other)] == []
     ui.close()
+
+
+def test_quit_joins_settings_workers_and_stops_timer(tmp_path, monkeypatch):
+    # Backlog 3: App.quit/close must run the same shutdown path as
+    # SettingsWindow.closeEvent — otherwise a live pack worker races
+    # libcrypto's atexit cleanup and segfaults frozen builds.
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+
+    class FakeWorker:
+        def __init__(self):
+            self.waited = False
+
+        def wait(self, ms=5000):
+            self.waited = True
+            return True
+
+    fw = FakeWorker()
+    ui.settings_win._pack_worker = fw
+    ui.settings_win._poll_timer.start()
+    ui.close()
+    assert fw.waited, "close must join the in-flight pack worker"
+    assert not ui.settings_win._poll_timer.isActive(), (
+        "close must stop the settings poll timer"
+    )
+    ui.quit()  # must not raise
+
+
+def test_bridge_disconnect_stops_delivery(tmp_path, monkeypatch):
+    # Backlog 3: after close the bridge must stop delivering — late events
+    # from a dying runtime must not touch deleted widgets.
+    from core.events import Event, EventBus
+    from ui.bridge import QtBridge
+
+    bus = EventBus()
+    bridge = QtBridge(bus)
+    seen = []
+    bridge.sig.connect(lambda e: seen.append(e))
+    bus.publish("tool_started", "s", "t", {})
+    from PySide6.QtCore import QCoreApplication
+
+    QCoreApplication.processEvents()
+    assert seen, "sanity: bridge delivers while open"
+    bridge.close()
+    bus.publish("tool_started", "s", "t", {})
+    QCoreApplication.processEvents()
+    assert len(seen) == 1, "closed bridge must not deliver new events"
