@@ -58,6 +58,17 @@ class AvatarWindow(QWidget):
         self._frame_index = 0
         self._spinner_index = 0
         self._drag_offset = None
+        # B82: each state must dwell at least _dwell_ms before another can
+        # replace it — a burst of events used to thrash the animation.
+        self._dwell_ms = 200
+        self._pending_state: AvatarState | None = None
+        self._dwell_timer = QTimer(self)
+        self._dwell_timer.setSingleShot(True)
+        self._dwell_timer.setInterval(self._dwell_ms)
+        self._dwell_timer.timeout.connect(self._apply_pending_state)
+        # B82: decoded frames keyed by path; a pack switch builds a new
+        # window, so the cache never outlives its manifest.
+        self._frame_cache: dict[str, QPixmap] = {}
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -82,7 +93,7 @@ class AvatarWindow(QWidget):
         self._spinner_timer.timeout.connect(self._advance_spinner)
         self._error_timer = QTimer(self)
         self._error_timer.setSingleShot(True)
-        self._error_timer.timeout.connect(lambda: self.set_state("idle"))
+        self._error_timer.timeout.connect(lambda: self.set_state("idle", immediate=True))
 
         self._render_frame()
         self._start_timer()
@@ -150,8 +161,22 @@ class AvatarWindow(QWidget):
             return
         super().mouseReleaseEvent(event)
 
-    def set_state(self, state: AvatarState) -> None:
+    def set_state(self, state: AvatarState, immediate: bool = False) -> None:
+        # B82: external event bursts are debounced (min-dwell); internal
+        # timer-owned transitions (_advance end, error_timer) pass
+        # immediate=True since they are already delayed by their own timer.
         if state == self._state and state != "error":
+            return
+        self._pending_state = state
+        if immediate or not self._dwell_timer.isActive():
+            if immediate:
+                self._dwell_timer.stop()
+            self._apply_pending_state()
+
+    def _apply_pending_state(self) -> None:
+        state = self._pending_state
+        self._pending_state = None
+        if state is None or (state == self._state and state != "error"):
             return
         self._state = state
         self._frame_index = 0
@@ -162,6 +187,7 @@ class AvatarWindow(QWidget):
             self._error_timer.start(error_timeout_ms())
         else:
             self._error_timer.stop()
+        self._dwell_timer.start()
 
     def _start_timer(self) -> None:
         anim = self._anim()
@@ -179,8 +205,10 @@ class AvatarWindow(QWidget):
                 # B47: a finished non-loop animation must return to idle
                 # instead of freezing on the last frame. The error state is
                 # excluded — it owns its own error_timer transition.
+                # immediate=True: the animation timer already waited out the
+                # dwell; this is a natural end-of-animation transition.
                 if self._state != "error":
-                    self.set_state("idle")
+                    self.set_state("idle", immediate=True)
                 return
         else:
             self._frame_index += 1
@@ -218,7 +246,11 @@ class AvatarWindow(QWidget):
     def _render_frame(self) -> None:
         anim = self._anim()
         path = anim.frames[self._frame_index]
-        pix = QPixmap(path)
+        pix = self._frame_cache.get(path)
+        if pix is None:
+            pix = QPixmap(path)
+            if not pix.isNull():
+                self._frame_cache[path] = pix
         if pix.isNull():
             self._label.setText("[!]")
             return
