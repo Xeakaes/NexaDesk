@@ -73,4 +73,9 @@ def ask_confirmation(
     """
     dlg, choice = _build_dialog(parent, tool_name, question, arguments)
     dlg.exec()
+    # B85: the dialog stole focus; restore it so subsequent keystrokes (and
+    # the xdotool --window capture) target the app, not a closed dialog.
+    if parent is not None:
+        parent.activateWindow()
+        parent.raise_()
     return choice["allow"]

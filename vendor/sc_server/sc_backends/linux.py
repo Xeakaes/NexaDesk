@@ -70,6 +70,24 @@ def run_x11(cmd: list[str], timeout: float = 5.0) -> str:
     return proc.stdout
 
 
+def _active_window_id() -> str:
+    """Current focused window id, or '' if unavailable (B85).
+
+    Keystrokes typed without --window land on whatever has focus by the
+    time xdotool runs — often the confirmation dialog we just closed.
+    """
+    try:
+        return run_x11(["xdotool", "getactivewindow"]).strip()
+    except Exception:
+        return ""
+
+
+def _window_args() -> list[str]:
+    """--window <id> for xdotool, or [] when the active window is unknown."""
+    wid = _active_window_id()
+    return ["--window", wid] if wid else []
+
+
 def type_segments(text: str) -> list[str]:
     """Split text into segments typed separately (Return goes between)."""
     return text.split("\n")
@@ -295,7 +313,7 @@ def key_press(key: str) -> None:
     """Press and release a single key."""
     _assert_single_allowed(key)
     if not _game_key(key, "press"):
-        run_x11(["xdotool", "key", xdotool_key(key)])
+        run_x11(["xdotool", "key", *_window_args(), xdotool_key(key)])
 
 
 def key_down(key: str) -> None:
@@ -304,7 +322,7 @@ def key_down(key: str) -> None:
     if _game_key(key, "down"):
         source = "uinput"
     else:
-        run_x11(["xdotool", "keydown", xdotool_key(key)])
+        run_x11(["xdotool", "keydown", *_window_args(), xdotool_key(key)])
         source = "x11"
     _hold(key, source, _held_keys)
 
@@ -313,7 +331,7 @@ def key_up(key: str) -> None:
     """Release a held key."""
     _assert_single_allowed(key)
     if not _game_key(key, "up"):
-        run_x11(["xdotool", "keyup", xdotool_key(key)])
+        run_x11(["xdotool", "keyup", *_window_args(), xdotool_key(key)])
     with _held_lock:
         _held_keys.pop(key, None)
 
@@ -322,17 +340,20 @@ def key_hotkey(*keys: str) -> None:
     """Press a chord in one xdotool call (e.g. key_hotkey('ctrl', 'c'))."""
     _assert_allowed_keys(keys)
     chord = "+".join(xdotool_key(key) for key in keys)
-    run_x11(["xdotool", "key", chord])
+    run_x11(["xdotool", "key", *_window_args(), chord])
 
 
 def type_text(text: str, interval: float = 0.03) -> None:
     """Type text: one xdotool type per line segment, Return between."""
     delay_ms = int(round(interval * 1000))
+    # B85: capture the target window once for the whole call — each segment
+    # must land in the same window even if focus moves mid-type.
+    win = _window_args()
     for index, segment in enumerate(type_segments(text)):
         if index:
-            run_x11(["xdotool", "key", "Return"])
+            run_x11(["xdotool", "key", *win, "Return"])
         if segment:
-            run_x11(["xdotool", "type", "--delay",
+            run_x11(["xdotool", "type", *win, "--delay",
                      str(delay_ms), "--", segment])
 
 

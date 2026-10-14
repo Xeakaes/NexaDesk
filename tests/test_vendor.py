@@ -227,3 +227,45 @@ def test_ocr_body_region_rejects_bad_values(tmp_path, monkeypatch):
         resp = client.post("/api/ocr", json={"region": bad}, headers=headers)
         assert resp.status_code == 400, f"region {bad} should be rejected"
         assert b"region" in resp.data.lower() or b"error" in resp.data.lower()
+
+
+def test_linux_xdotool_targets_active_window(monkeypatch):
+    # B85: keystrokes typed without --window land on whatever has focus by
+    # the time xdotool runs (often the confirmation dialog we just closed).
+    import vendor.sc_server.sc_backends.linux as linux
+
+    recorded: list[list[str]] = []
+
+    def fake_run_x11(cmd, timeout=5.0):
+        recorded.append(list(cmd))
+        if "getactivewindow" in cmd:
+            return "12345\n"
+        return ""
+
+    monkeypatch.setattr(linux, "run_x11", fake_run_x11)
+    linux.type_text("hi")
+    assert recorded, "type_text made no xdotool calls"
+    for cmd in recorded:
+        if cmd[:2] == ["xdotool", "type"] or (
+            len(cmd) >= 2 and cmd[0] == "xdotool" and cmd[1] in ("key", "keydown", "keyup")
+        ):
+            assert "--window" in cmd, f"missing --window: {cmd}"
+            assert cmd[cmd.index("--window") + 1] == "12345", cmd
+
+
+def test_linux_xdotool_falls_back_without_window(monkeypatch):
+    # B85: if getactivewindow fails (no X focus, headless), the call must
+    # still go through without --window instead of erroring out.
+    import vendor.sc_server.sc_backends.linux as linux
+
+    recorded: list[list[str]] = []
+
+    def fake_run_x11(cmd, timeout=5.0):
+        recorded.append(list(cmd))
+        if "getactivewindow" in cmd:
+            raise RuntimeError("no active window")
+        return ""
+
+    monkeypatch.setattr(linux, "run_x11", fake_run_x11)
+    linux.type_text("hi")  # must not raise
+    assert any(c[:2] == ["xdotool", "type"] for c in recorded)
