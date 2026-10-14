@@ -919,7 +919,9 @@ class SettingsWindow(QWidget):
         self._write(self._settings_path, settings)
         self._write(self._secrets_path, secrets, mode=0o600)
         lang = "tr" if self._lang.currentIndex() == 0 else "en"
-        theme = self._theme.currentText()
+        # B62: retranslate() localizes the combo labels, so the visible text
+        # is "Açık"/"Karanlık" — save the stable token, not the label.
+        theme = list(THEMES)[self._theme.currentIndex()]
         mode = "gui" if self._mode.currentIndex() == 0 else "avatar"
         old = load_prefs(self._ui_json)
         save_prefs(self._ui_json, UiPrefs(mode=mode, theme=theme, lang=lang))

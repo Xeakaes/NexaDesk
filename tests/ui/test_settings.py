@@ -1177,3 +1177,27 @@ def test_model_list_worker_holds_no_qobject():
         )
     worker.start()
     assert worker.wait(5000) or not worker._thread.is_alive()
+
+
+def test_save_writes_theme_token_not_label(tmp_path):
+    # B62: save() stored the localized combo label ("Açık") instead of the
+    # token; load_prefs rejected it and the app fell back to dark.
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui.prefs import load_prefs
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._theme.setCurrentIndex(1)  # light; retranslate localized the label
+    win.save()
+    assert load_prefs(ui_json).theme == "light"
+    raw = json.loads(ui_json.read_text(encoding="utf-8"))
+    assert raw["theme"] == "light"
+    assert win._theme.currentText() == "Açık"  # label localized, token written
+    win.hide()
+    win.deleteLater()
