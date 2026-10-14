@@ -208,7 +208,7 @@ def build_pack_from_emotion_images(
     STATE_TRANSFORMS loop writes ``frames/<emotion>/<state>_XX.png`` and a
     v2 manifest with the full emotion × state grid.
     """
-    from ui.avatar.manifest import REQUIRED_EMOTIONS, REQUIRED_STATES
+    from ui.avatar.manifest import REQUIRED_EMOTIONS
 
     name = sanitize_pack_name(name)
     missing = [e for e in REQUIRED_EMOTIONS if e not in emotion_images]

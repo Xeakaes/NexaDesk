@@ -31,12 +31,8 @@ from PySide6.QtWidgets import (
 
 from ui.avatar.ai_pack import AiPackCancelled, build_ai_pack
 from ui.avatar.pack import PackError, build_pack, delete_pack, sanitize_pack_name
-from core.auth.github_device import (
-    GitHubDeviceError,
-    poll_for_token,
-    request_device_code,
-)
-from core.providers.image_gen import ImageGenClient, ImageGenError
+from core.auth.github_device import poll_for_token, request_device_code
+from core.providers.image_gen import ImageGenClient
 from ui.i18n import i18n, language_bridge
 from ui.paths import SECRETS_PATH, SETTINGS_PATH, ui_json_path
 from ui.prefs import THEMES, load_prefs, save_prefs, UiPrefs

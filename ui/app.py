@@ -17,7 +17,6 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from core.bootstrap import build_runtime
 from core.paths import ensure_user_config
 from core.providers.base import ProviderError
-from ui.bridge import QtBridge
 from ui.chooser import ModeChooser
 from ui.fonts import load_fonts
 from ui.history import HistoryStore, default_db_path

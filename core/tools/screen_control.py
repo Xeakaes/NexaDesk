@@ -54,7 +54,6 @@ class _ScreenshotTool(_ScreenControlTool):
             import io
             import time
             import uuid
-            from pathlib import Path
 
             from core.paths import data_dir
 

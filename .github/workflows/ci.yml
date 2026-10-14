@@ -22,10 +22,25 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-packaging.txt
+      - name: Lint
+        run: |
+          pip install ruff
+          ruff check --select F,E9 --exclude vendor --exclude tests .
       - name: Run tests
-        # Retry once: PySide6 offscreen teardown can segfault after all
-        # tests pass (exit 139) — a known flake, not a real failure.
-        run: QT_QPA_PLATFORM=offscreen python -m pytest tests -q || QT_QPA_PLATFORM=offscreen python -m pytest tests -q
+        # Retry once, but ONLY on segfault (exit 139): PySide6 offscreen
+        # teardown can crash after all tests pass — a known flake. Any
+        # other exit code fails immediately; a blanket retry would mask
+        # real regressions (B79).
+        run: |
+          set +e
+          QT_QPA_PLATFORM=offscreen python -m pytest tests -q
+          code=$?
+          if [ "$code" -eq 139 ]; then
+            echo "Segfault (139) — retrying once (flake-retried)"
+            QT_QPA_PLATFORM=offscreen python -m pytest tests -q
+            code=$?
+          fi
+          exit $code
       - name: B61 fetch-race stress (no retry)
         # Deliberately NOT wrapped in the retry above — a retry would mask
         # the real Settings-window segfault regression this test guards.
@@ -42,12 +57,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-packaging.txt
+      - name: Lint
+        run: |
+          pip install ruff
+          ruff check --select F,E9 --exclude vendor --exclude tests .
       - name: Run tests
-        # Retry once: Qt offscreen teardown flake (same as the Linux job).
+        # Retry once on access-violation/segfault only (0xC0000005 =
+        # -1073741819); any other failure fails immediately (B79).
         run: |
           $env:QT_QPA_PLATFORM = "offscreen"
           python -m pytest tests -q
-          if ($LASTEXITCODE -ne 0) { python -m pytest tests -q }
+          if ($LASTEXITCODE -eq -1073741819 -or $LASTEXITCODE -eq 3221225477) {
+            Write-Host "Segfault — retrying once (flake-retried)"
+            python -m pytest tests -q
+          }
         shell: pwsh
       - name: B61 fetch-race stress (no retry)
         run: |

@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 
 from ui.history import HistoryStore, default_db_path
 from ui.i18n import i18n
-from ui.paths import SETTINGS_PATH, SECRETS_PATH, ui_json_path
+from ui.paths import SETTINGS_PATH, SECRETS_PATH
 from ui.prefs import UiPrefs, load_prefs, save_prefs
 from ui.theme import qss
 

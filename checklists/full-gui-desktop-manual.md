@@ -1,11 +1,11 @@
 # Full-GUI Milestone — Desktop Manual Checklist
 
-> Run from project root: `.venv/bin/python -m ui.app`
+> Run from project root: `.venv/bin/python ui/app.py` (entrypoint; `python -m ui.app` also works)
 > Record: PASS / FAIL / NOTE per row. Screenshots optional.
 
 ## 1. First-run chooser
-- [ ] Delete/rename `config/ui.json` if present; launch app → mode chooser dialog appears (GUI / Avatar buttons, title in Turkish).
-- [ ] Pick **GUI** → main window opens; `config/ui.json` now has `"mode": "gui"`.
+- [ ] Delete/rename the `ui.json` under your config dir (see `ui.paths.ui_json_path()` — `~/.config/NexaDesk/ui.json` on Linux) if present; launch app → mode chooser dialog appears (GUI / Avatar buttons, title in Turkish).
+- [ ] Pick **GUI** → main window opens; `ui.json` now has `"mode": "gui"`.
 - [ ] Relaunch → no chooser, GUI opens directly.
 - [ ] Delete `ui.json` again; pick **Avatar** → avatar mode opens; `ui.json` has `"mode": "avatar"`.
 
@@ -55,7 +55,7 @@
 
 ## 9. CLI regression
 - [ ] `.venv/bin/python cli.py --help` still works.
-- [ ] Existing test suite green: `.venv/bin/pytest tests -q` (expect 122+ passing).
+- [ ] Existing test suite green: `.venv/bin/pytest tests -q` (expect 593+ passing).
 
 ## Sign-off
 - Tester: _____________  Date: ___________  Build/commit: ___________
