@@ -86,6 +86,10 @@ STRINGS: dict[str, dict[str, str]] = {
     "tray.settings": {"tr": "Ayarlar", "en": "Settings"},
     "tray.quit": {"tr": "Çıkış", "en": "Quit"},
     "chat.attach": {"tr": "Dosya ekle", "en": "Attach file"},
+    "chat.attach_rejected": {
+        "tr": "{count} dosya reddedildi (boyut/tür sınırı)",
+        "en": "{count} file(s) rejected (size/type limit)",
+    },
     "chat.attachment": {"tr": "ek", "en": "attachment"},
     "settings.pack_title": {"tr": "Özel karakter", "en": "Custom character"},
     "settings.pack_pick": {"tr": "Fotoğraf seç…", "en": "Choose photo…"},

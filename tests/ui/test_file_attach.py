@@ -156,3 +156,57 @@ def test_bubble_send_passes_images(monkeypatch, tmp_path):
     bubble._send()
     assert sent and sent[0][1] and sent[0][1][0].startswith("data:image/png;base64,")
     bubble.deleteLater()
+
+
+def test_pick_attachments_reports_rejected_count(monkeypatch, tmp_path):
+    # B74: a rejected file (too big, bad type, unreadable) was skipped with
+    # no feedback at all — the user thinks the attach silently worked.
+    from ui.attachments import AttachmentError
+
+    app = _app()
+    good = tmp_path / "ok.txt"
+    good.write_text("hello", encoding="utf-8")
+    bad = tmp_path / "big.png"
+    bad.write_bytes(b"x")  # load_attachment will reject via monkeypatch
+
+    calls = []
+
+    def fake_load(path):
+        calls.append(path)
+        if path.name == "big.png":
+            raise AttachmentError("too large")
+        from ui.attachments import Attachment
+
+        return Attachment(name=path.name, kind="text", content="hello")
+
+    monkeypatch.setattr("ui.attachments.load_attachment", fake_load)
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QFileDialog.getOpenFileNames",
+        staticmethod(lambda *a, **k: ([str(bad), str(good)], "")),
+    )
+    win = ChatWindow(history=HistoryStore(tmp_path / "h.db"))
+    win._pick_attachments()
+    assert len(win._pending_attachments) == 1
+    assert "1" in win._activity.text()  # rejected count surfaced
+    win.hide()
+
+
+def test_bubble_pick_attachments_reports_rejected_count(monkeypatch, tmp_path):
+    from ui.attachments import Attachment, AttachmentError
+
+    app = _app()
+    bad = tmp_path / "bad.bin"
+    bad.write_bytes(b"x")
+
+    def fake_load(path):
+        raise AttachmentError("nope")
+
+    monkeypatch.setattr("ui.attachments.load_attachment", fake_load)
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QFileDialog.getOpenFileNames",
+        staticmethod(lambda *a, **k: ([str(bad)], "")),
+    )
+    bubble = BubbleWindow(on_send=lambda t, i=None: None, on_cancel=lambda: None)
+    bubble._pick_attachments()
+    assert "1" in bubble._activity.text()
+    bubble.deleteLater()

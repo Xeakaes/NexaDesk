@@ -105,12 +105,16 @@ class BubbleWindow(QFrame):
             str(Path.home()),
             "Images (*.png *.jpg *.jpeg *.webp);;Text (*.txt *.md *.py *.json *.csv *.log);;All (*)",
         )
+        rejected = 0  # B74
         for raw in paths:
             try:
                 att = load_attachment(Path(raw))
             except (AttachmentError, OSError):
+                rejected += 1
                 continue
             self._pending_attachments.append(att)
+        if rejected:
+            self._activity.setText(i18n.t("chat.attach_rejected", count=rejected))
         count = len(self._pending_attachments)
         self._attach_btn.setText(
             f"{i18n.t('chat.attach')} ({count})" if count else i18n.t("chat.attach")
