@@ -27,6 +27,7 @@ class BubbleWindow(QFrame):
         on_send: Callable[..., None],
         on_cancel: Callable[[], None],
         on_history: Callable[[], None] | None = None,
+        on_geometry_change: Callable[[], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -41,6 +42,9 @@ class BubbleWindow(QFrame):
         self._on_send = on_send
         self._on_cancel = on_cancel
         self._on_history = on_history
+        # B83: the transcript can grow the bubble past the screen edge; the
+        # host app re-places it on every resize.
+        self._on_geometry_change = on_geometry_change
         self._session_picker: QListWidget | None = None
 
         self._transcript = QPlainTextEdit(self)
@@ -164,6 +168,13 @@ class BubbleWindow(QFrame):
             # accumulate hidden Tool windows until the bubble dies.
             self._session_picker.deleteLater()
             self._session_picker = None
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # B83: the transcript grows the window; the host must re-place it so
+        # it never hangs off the bottom of the screen.
+        if self._on_geometry_change is not None:
+            self._on_geometry_change()
 
     def hideEvent(self, event) -> None:
         self._close_session_picker()

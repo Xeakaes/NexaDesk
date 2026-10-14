@@ -133,3 +133,27 @@ def test_wide_bubble_still_never_overlaps_avatar(tmp_path, monkeypatch):
 
     assert ui.bubble.x() + ui.bubble.width() <= ui.avatar.x() - 16
     ui.close()
+
+
+def test_bubble_repositions_on_resize_and_stays_on_screen(tmp_path, monkeypatch):
+    # B83: the bubble grew with the transcript but never re-placed itself,
+    # so a tall bubble near the bottom of the screen hung off-screen.
+    from PySide6.QtGui import QGuiApplication
+
+    from tests.ui.test_avatar_app import _make_app
+
+    app, ui, rt = _make_app(tmp_path, monkeypatch)
+    screen = QGuiApplication.primaryScreen().availableGeometry()
+    # resizeEvent only fires on a shown window — matches the real bug path
+    # (transcript grows while the bubble is open).
+    ui.bubble.show()
+    # avatar near the bottom so an 800px-tall bubble would overflow
+    ui.avatar.move(500, screen.bottom() - 50)
+    ui.avatar.drag_moved.emit()
+    ui.bubble.resize(340, 800)  # transcript grows → resizeEvent fires
+    bottom = ui.bubble.y() + ui.bubble.height()
+    assert bottom <= screen.bottom() + 1, (
+        f"bubble hangs off-screen: bottom={bottom} > {screen.bottom()}"
+    )
+    assert ui.bubble.y() >= screen.top()
+    ui.close()
