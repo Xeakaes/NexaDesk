@@ -284,7 +284,13 @@ class _AiPackWorker:
 def merge_permissions(existing: dict, default: str, per_tool: dict) -> dict:
     merged = dict(existing)
     merged["*"] = default
-    merged.update(per_tool)
+    for tool, level in per_tool.items():
+        if level == default:
+            # B65: a row equal to the default is not written; check() falls
+            # through to "*" so the default actually takes effect.
+            merged.pop(tool, None)
+        else:
+            merged[tool] = level
     return merged
 
 
@@ -401,6 +407,8 @@ class SettingsWindow(QWidget):
         # --- permissions section ---
         self._perm_default = QComboBox(self)
         self._perm_default.addItems(PERMISSION_LEVELS)
+        self._perm_default_prev = self._perm_default.currentText()
+        self._perm_default.currentTextChanged.connect(self._on_perm_default_changed)
         self._perm_tools = {}
         perm_form = QFormLayout()
         self._lbl_perm_default = QLabel(self)
@@ -820,6 +828,17 @@ class SettingsWindow(QWidget):
         self._update_build_enabled()
         self._status.setText("")
 
+    def _on_perm_default_changed(self, text: str) -> None:
+        # B65: rows that still equal the OLD default follow the new default;
+        # rows the user explicitly set (different value) are left alone.
+        old = self._perm_default_prev
+        self._perm_default_prev = text
+        if text == old:
+            return
+        for combo in self._perm_tools.values():
+            if combo.currentText() == old:
+                combo.setCurrentText(text)
+
     def load(self) -> None:
         settings = self._read(self._settings_path)
         secrets = self._read(self._secrets_path)
@@ -854,9 +873,18 @@ class SettingsWindow(QWidget):
         self._sc_key.setText(secrets.get("screen_control_api_key", ""))
         perms = settings.get("permissions") or {}
         idx = self._perm_default.findText(perms.get("*", "ask"))
+        # B65: loading the default cascades into rows that equal it — that
+        # is fine here (rows are about to be set explicitly), but block the
+        # signal so the cascade can't fight the per-tool load below.
+        self._perm_default.blockSignals(True)
         self._perm_default.setCurrentIndex(max(0, idx))
+        self._perm_default.blockSignals(False)
+        self._perm_default_prev = self._perm_default.currentText()
+        default_level = self._perm_default_prev
         for tool, combo in self._perm_tools.items():
-            idx = combo.findText(perms.get(tool, "ask"))
+            # B65: an unset tool row shows the DEFAULT level (falls through
+            # to "*" in check()), not a hardcoded "ask".
+            idx = combo.findText(perms.get(tool, default_level))
             combo.setCurrentIndex(max(0, idx))
         self._avatar.clear()
         self._avatar.addItems(self._list_avatars())

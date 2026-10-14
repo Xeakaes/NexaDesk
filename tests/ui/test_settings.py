@@ -1269,3 +1269,58 @@ def test_provider_type_change_clears_stale_model(tmp_path, monkeypatch):
     assert win._provider_model.currentText().strip() == ""
     win.hide()
     win.deleteLater()
+
+
+def test_deny_default_applies_to_known_tools_end_to_end(tmp_path):
+    # B65: the real repro — the user flips the default to "deny" while the
+    # per-tool rows still say "ask"; check() consults "*" only for unknown
+    # tools, so nothing was denied. Two fixes compose: changing the default
+    # cascades into rows that still equal the OLD default, and save() writes
+    # only rows that differ from the default.
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from core.tools.registry import PermissionLevel, PermissionPolicy
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()  # defaults: "*" = ask, rows fall back to ask
+    win._perm_default.setCurrentText("deny")  # user changes ONLY the default
+    win.save()
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    perms = data["permissions"]
+    assert "screenshot" not in perms          # default-equal rows not written
+    policy = PermissionPolicy(perms)
+    assert policy.check("screenshot") is PermissionLevel.DENY
+    assert policy.check("ocr_screen") is PermissionLevel.DENY
+    win.hide()
+    win.deleteLater()
+
+
+def test_permission_row_explicitly_set_survives_default_change(tmp_path):
+    # A row the user deliberately set (differs from the old default) must
+    # NOT be clobbered when the default changes underneath it.
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from core.tools.registry import PermissionLevel, PermissionPolicy
+    from ui.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    settings, secrets, ui_json = _make_settings_files(tmp_path)
+    win = SettingsWindow(settings, secrets, ui_json)
+    win.load()
+    win._perm_tools["screenshot"].setCurrentText("allow")  # explicit override
+    win.save()
+    win._perm_default.setCurrentText("deny")  # later default change
+    win.save()
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    policy = PermissionPolicy(data["permissions"])
+    assert policy.check("screenshot") is PermissionLevel.ALLOW  # kept
+    assert policy.check("mouse") is PermissionLevel.DENY        # default applied
+    win.hide()
+    win.deleteLater()
