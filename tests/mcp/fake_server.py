@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 LAP = {"lap": 1, "time_s": 82.4, "sectors": [27.1, 27.5, 27.8]}
@@ -78,8 +79,21 @@ def _call_tool(name: str, arguments: dict) -> dict:
     raise AssertionError(f"unhandled tool: {name}")
 
 
+def _claim_first_call(state_file: str | None) -> bool:
+    """True the first time per state file; writes the marker on first claim."""
+    if not state_file:
+        return True
+    path = Path(state_file)
+    if path.exists():
+        return False
+    path.write_text("1")
+    return True
+
+
 def main() -> None:
     scenario = sys.argv[1] if len(sys.argv) > 1 else "ok"
+    delay_s = float(sys.argv[2]) if scenario == "delay" and len(sys.argv) > 2 else 5.0
+    state_file = os.environ.get("FAKE_MCP_STATE")
     pid_file = os.environ.get("FAKE_MCP_PID")
     if pid_file:
         Path(pid_file).write_text(str(os.getpid()))
@@ -114,6 +128,29 @@ def main() -> None:
                 "method": "notifications/message",
                 "params": {"level": "info", "data": "handling call"},
             })
+            if scenario == "crash_on_call":
+                raise SystemExit(1)
+            if scenario == "invalid_json":
+                sys.stdout.buffer.write(b"{this is not json\n")
+                sys.stdout.buffer.flush()
+                continue
+            if scenario == "error_result":
+                _send({
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "result": {
+                        "content": [{
+                            "type": "text",
+                            "text": json.dumps({"refused": "user denied"}),
+                        }],
+                        "isError": True,
+                    },
+                })
+                continue
+            if scenario == "delay" and _claim_first_call(state_file):
+                time.sleep(delay_s)
+            if scenario == "flaky" and _claim_first_call(state_file):
+                raise SystemExit(1)
             tool_name = params.get("name")
             if tool_name not in {t["name"] for t in TOOLS}:
                 _send({

@@ -14,9 +14,11 @@ import os
 import queue
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 
 from core import __version__
+from core.agent.cancellation import CancellationToken
 from core.mcp.protocol import ProtocolError, decode, encode
 
 PROTOCOL_VERSION = "2025-06-18"
@@ -66,6 +68,7 @@ class MCPClient:
         self._next_id = 0
         self._state = "new"  # new | running | crashed | broken | closed
         self._tools: list[dict] = []
+        self._ever_started = False
 
     @property
     def state(self) -> str:
@@ -80,6 +83,27 @@ class MCPClient:
         if self._state != "running":
             raise MCPClientError("not_started", f"client state is {self._state!r}")
         return list(self._tools)
+
+    def call_tool(
+        self,
+        name: str,
+        arguments: dict,
+        cancel: CancellationToken | None = None,
+    ) -> dict:
+        """Invoke one MCP tool; returns the raw MCP result payload.
+
+        A dead-but-previously-started client is respawned once before the
+        call (auto-reconnect); a failure inside the call itself raises.
+        """
+        if self._state in ("new", "closed"):
+            raise MCPClientError("not_started", f"client state is {self._state!r}")
+        if self._state in ("crashed", "broken") and self._ever_started:
+            self._spawn_and_handshake()
+        if cancel is not None and cancel.cancelled:
+            raise MCPClientError("cancelled", f"{name} cancelled before call")
+        return self._request(
+            "tools/call", {"name": name, "arguments": arguments}, cancel=cancel
+        )
 
     def close(self) -> None:
         if self._state == "closed":
@@ -110,6 +134,7 @@ class MCPClient:
         self.close()
 
     def _spawn_and_handshake(self) -> None:
+        self._reap()
         env = None
         if self.config.env:
             env = {**os.environ, **self.config.env}
@@ -135,6 +160,22 @@ class MCPClient:
         self.protocol_version = result.get("protocolVersion")
         self._notify("notifications/initialized")
         self._tools = self._request("tools/list", {}).get("tools", [])
+        self._ever_started = True
+
+    def _reap(self) -> None:
+        """Terminate and reap any previous process before a (re)spawn."""
+        proc = self._proc
+        if proc is None:
+            return
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=1.0)
+        else:
+            proc.wait()  # reap a zombie left by a crash
 
     def _send(self, payload: dict) -> None:
         proc = self._proc
@@ -148,7 +189,14 @@ class MCPClient:
     def _notify(self, method: str, params: dict | None = None) -> None:
         self._send({"jsonrpc": "2.0", "method": method, "params": params or {}})
 
-    def _request(self, method: str, params: dict | None = None) -> dict:
+    def _request(
+        self,
+        method: str,
+        params: dict | None = None,
+        cancel: CancellationToken | None = None,
+    ) -> dict:
+        if cancel is not None and cancel.cancelled:
+            raise MCPClientError("cancelled", f"{method} cancelled before send")
         with self._lock:
             self._next_id += 1
             req_id = self._next_id
@@ -161,21 +209,39 @@ class MCPClient:
             with self._lock:
                 self._pending.pop(req_id, None)
             raise
-        try:
-            reply = waiter.get(timeout=self.config.request_timeout_s)
-        except queue.Empty:
-            with self._lock:
-                self._pending.pop(req_id, None)
-                state = self._state
-            if state == "crashed" or (self._proc is not None and self._proc.poll() is not None):
-                raise MCPClientError("server_crashed", f"{method}: server exited")
-            if state == "broken":
-                raise MCPClientError("protocol", f"{method}: malformed response")
-            raise MCPClientError("timeout", f"{method} timed out") from None
+        deadline = time.monotonic() + self.config.request_timeout_s
+        while True:
+            if cancel is not None and cancel.cancelled:
+                with self._lock:
+                    self._pending.pop(req_id, None)
+                raise MCPClientError("cancelled", f"{method} cancelled")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                with self._lock:
+                    self._pending.pop(req_id, None)
+                    state = self._state
+                if state == "crashed" or (
+                    self._proc is not None and self._proc.poll() is not None
+                ):
+                    raise MCPClientError("server_crashed", f"{method}: server exited")
+                if state == "broken":
+                    raise MCPClientError("protocol", f"{method}: malformed response")
+                raise MCPClientError("timeout", f"{method} timed out") from None
+            try:
+                reply = waiter.get(timeout=min(0.1, remaining))
+            except queue.Empty:
+                continue
+            break
         if isinstance(reply, MCPClientError):
             raise reply
         if "error" in reply:
-            raise MCPClientError("jsonrpc", json.dumps(reply["error"]))
+            error = reply["error"]
+            code = (
+                "not_found"
+                if isinstance(error, dict) and error.get("code") == -32602
+                else "jsonrpc"
+            )
+            raise MCPClientError(code, json.dumps(error))
         return reply["result"]
 
     def _read_loop(self) -> None:
