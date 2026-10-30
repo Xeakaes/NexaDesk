@@ -147,6 +147,13 @@ def main() -> None:
                     },
                 })
                 continue
+            if scenario == "empty":
+                _send({
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "result": {"content": [], "isError": False},
+                })
+                continue
             if scenario == "delay" and _claim_first_call(state_file):
                 time.sleep(delay_s)
             if scenario == "flaky" and _claim_first_call(state_file):
