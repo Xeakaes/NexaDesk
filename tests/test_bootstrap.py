@@ -170,3 +170,60 @@ def test_apply_screen_control_settings_toggles_enabled(tmp_path, monkeypatch):
     assert reg.get("screenshot") is None
     bs.apply_screen_control_settings(reg, on, {})
     assert reg.get("screenshot") is not None
+
+
+def _write_mcp_settings(tmp_path, enabled, pid_file=None):
+    import sys
+
+    settings = {
+        "provider": {"type": "ollama", "url": "http://127.0.0.1:11434", "model": "m"},
+        "permissions": {"*": "allow"},
+        "agent": {"max_tool_calls": 10, "tool_timeout_s": 30, "model_timeout_s": 60},
+        "mcp": {
+            "enabled": enabled,
+            "servers": [{
+                "command": [sys.executable, "-m", "tests.mcp.fake_server", "ok"],
+                "prefix": "mcp_",
+                "env": {"FAKE_MCP_PID": str(pid_file)} if pid_file else None,
+                "request_timeout_s": 3.0,
+            }],
+        },
+    }
+    sp = tmp_path / "settings.json"
+    sp.write_text(json.dumps(settings))
+    kp = tmp_path / "secrets.json"
+    kp.write_text(json.dumps({}))
+    os.chmod(kp, 0o600)
+    return sp, kp
+
+
+def test_bootstrap_registers_mcp_tools_and_closes_on_runtime_close(tmp_path):
+    pid_file = tmp_path / "fake.pid"
+    sp, kp = _write_mcp_settings(tmp_path, enabled=True, pid_file=pid_file)
+    rt, events, session = build_runtime(
+        settings_path=sp, secrets_path=kp, provider=FakeProvider([])
+    )
+    assert "mcp_echo" in rt.registry.names()
+    pid = int(pid_file.read_text())
+    os.kill(pid, 0)  # fake server is running
+    rt.close()
+    import pytest
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_bootstrap_mcp_disabled_registers_nothing(tmp_path):
+    sp, kp = _write_mcp_settings(tmp_path, enabled=False)
+    rt, events, session = build_runtime(
+        settings_path=sp, secrets_path=kp, provider=FakeProvider([])
+    )
+    assert "mcp_echo" not in rt.registry.names()
+    rt.close()
+
+
+def test_permission_policy_applies_to_mcp_tool_names():
+    from core.tools.registry import PermissionLevel, PermissionPolicy
+
+    policy = PermissionPolicy({"*": "allow", "mcp_write_setup": "ask"})
+    assert policy.check("mcp_write_setup") is PermissionLevel.ASK
+    assert policy.check("mcp_echo") is PermissionLevel.ALLOW

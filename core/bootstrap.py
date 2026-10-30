@@ -9,6 +9,8 @@ from core.agent.config import AgentConfig
 from core.agent.runtime import AgentRuntime
 from core.config import ensure_secrets_mode, load_secrets, load_settings
 from core.events import EventBus
+from core.mcp.client import MCPServerConfig
+from core.mcp.mapping import register_mcp_tools
 from core.paths import config_dir
 from core.providers import create_provider
 from core.providers.base import ModelProvider
@@ -95,6 +97,14 @@ def build_runtime(
     if sc_cfg.get("enabled", False):
         factory = client_factory or default_client_factory(settings, secrets)
         register_screen_control(registry, factory)
+    mcp_cfg = settings.get("mcp") or {}
+    mcp_clients = []
+    if mcp_cfg.get("enabled", False):
+        mcp_configs = [
+            MCPServerConfig.from_dict(server)
+            for server in (mcp_cfg.get("servers") or [])
+        ]
+        mcp_clients = register_mcp_tools(registry, mcp_configs)
     policy = PermissionPolicy(settings.get("permissions") or {"*": "ask"})
     agent_cfg_raw = settings.get("agent") or {}
     agent_config = AgentConfig(
@@ -107,4 +117,6 @@ def build_runtime(
     events = EventBus()
     session = SessionStore()
     runtime = AgentRuntime(provider, registry, policy, events, session, agent_config)
+    for client in mcp_clients:
+        runtime.on_close(client.close)
     return runtime, events, session

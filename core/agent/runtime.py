@@ -17,6 +17,7 @@ import json
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 
@@ -130,6 +131,15 @@ class AgentRuntime:
         # running (future.cancel() cannot stop a live thread). Counted so a
         # saturated pool fails fast instead of queueing doomed calls.
         self._hung_futures: list = []
+        self._close_hooks: list[Callable[[], None]] = []
+
+    def on_close(self, fn: Callable[[], None]) -> None:
+        """Register a hook run by close() in registration order.
+
+        Used for owned subprocess teardown (MCP servers); a failing hook
+        never blocks the others or propagates out of close().
+        """
+        self._close_hooks.append(fn)
 
     @property
     def active_task_id(self) -> str | None:
@@ -179,6 +189,11 @@ class AgentRuntime:
         """Cancel active task, stop accepting tool work, free threads (spec §3.5)."""
         self.cancel_active_task()
         self._executor.shutdown(wait=False, cancel_futures=True)
+        for hook in self._close_hooks:
+            try:
+                hook()
+            except Exception:
+                pass  # teardown must never raise
 
     def start_task(self, session_id: str, user_text: str) -> str:
         task_id = self.begin_task(session_id, user_text)
