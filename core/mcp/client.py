@@ -15,6 +15,7 @@ import queue
 import subprocess
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 
 from core import __version__
@@ -69,6 +70,8 @@ class MCPClient:
         self._state = "new"  # new | running | crashed | broken | closed
         self._tools: list[dict] = []
         self._ever_started = False
+        self._stderr_chunks: deque[bytes] = deque(maxlen=64)  # ~256 KiB cap
+        self._stderr_reader: threading.Thread | None = None
 
     @property
     def state(self) -> str:
@@ -122,10 +125,14 @@ class MCPClient:
                     proc.wait(timeout=2.0)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                    proc.wait(timeout=1.0)
+                    try:
+                        proc.wait(timeout=1.0)
+                    except subprocess.TimeoutExpired:
+                        pass  # kernel will reap it eventually
         self._fail_pending(MCPClientError("server_crashed", "client closed"))
-        if self._reader is not None:
-            self._reader.join(timeout=1.0)
+        for thread in (self._reader, self._stderr_reader):
+            if thread is not None:
+                thread.join(timeout=1.0)
 
     def __enter__(self) -> "MCPClient":
         return self
@@ -138,12 +145,13 @@ class MCPClient:
         env = None
         if self.config.env:
             env = {**os.environ, **self.config.env}
+        self._stderr_chunks.clear()
         try:
             self._proc = subprocess.Popen(
                 self.config.command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 cwd=self.config.cwd,
                 env=env,
             )
@@ -152,14 +160,25 @@ class MCPClient:
         self._state = "running"
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
-        result = self._request("initialize", {
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {},
-            "clientInfo": {"name": "NexaDesk", "version": __version__},
-        })
-        self.protocol_version = result.get("protocolVersion")
-        self._notify("notifications/initialized")
-        self._tools = self._request("tools/list", {}).get("tools", [])
+        stderr_stream = self._proc.stderr
+        if stderr_stream is not None:
+            self._stderr_reader = threading.Thread(
+                target=self._drain_stderr, args=(stderr_stream,), daemon=True
+            )
+            self._stderr_reader.start()
+        try:
+            result = self._request("initialize", {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": "NexaDesk", "version": __version__},
+            })
+            self.protocol_version = result.get("protocolVersion")
+            self._notify("notifications/initialized")
+            self._tools = self._request("tools/list", {}).get("tools", [])
+        except MCPClientError as exc:
+            raise MCPClientError(
+                exc.code, f"{exc.message}{self._stderr_hint()}"
+            ) from exc
         self._ever_started = True
 
     def _reap(self) -> None:
@@ -173,9 +192,55 @@ class MCPClient:
                 proc.wait(timeout=2.0)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                proc.wait(timeout=1.0)
+                try:
+                    proc.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    pass  # kernel will reap it eventually
         else:
             proc.wait()  # reap a zombie left by a crash
+        # Join the old pipes' threads before a new connection overwrites
+        # self._reader, so a straggler cannot mark the fresh connection
+        # crashed or fail its pending requests (review finding #3).
+        for thread in (self._reader, self._stderr_reader):
+            if thread is not None and thread is not threading.current_thread():
+                thread.join(timeout=1.0)
+        self._reader = None
+        self._stderr_reader = None
+
+    def _drain_stderr(self, stream) -> None:
+        """Continuously consume server stderr into a bounded tail.
+
+        Draining is mandatory: an unread PIPE fills (64 KiB) and would block
+        the server. Chunks (not lines) bound memory even without newlines.
+        """
+        try:
+            while True:
+                chunk = stream.read1(4096)
+                if not chunk:
+                    break
+                self._stderr_chunks.append(chunk)
+        except (OSError, ValueError):
+            pass
+
+    def _stderr_hint(self) -> str:
+        """Tail of server stderr, for handshake failure messages.
+
+        If the server already exited, join the drain thread first so the
+        diagnostic emitted just before death is not lost to a scheduling
+        race; a still-alive server is not waited for.
+        """
+        proc = self._proc
+        if (
+            proc is not None
+            and proc.poll() is not None
+            and self._stderr_reader is not None
+            and self._stderr_reader is not threading.current_thread()
+        ):
+            self._stderr_reader.join(timeout=0.5)
+        if not self._stderr_chunks:
+            return ""
+        text = b"".join(self._stderr_chunks).decode(errors="replace")[-2000:]
+        return f"\nserver stderr tail:\n{text}"
 
     def _send(self, payload: dict) -> None:
         proc = self._proc
@@ -263,8 +328,15 @@ class MCPClient:
         except OSError:
             pass
         finally:
-            self._mark_crashed()
-            self._fail_pending(MCPClientError("server_crashed", "server process ended"))
+            # Only the reader thread currently owned by this client may
+            # mutate shared state: a straggler from a replaced connection
+            # must not mark the fresh connection crashed or fail its
+            # pending requests (review finding #3).
+            if threading.current_thread() is self._reader:
+                self._mark_crashed()
+                self._fail_pending(
+                    MCPClientError("server_crashed", "server process ended")
+                )
 
     def _mark_crashed(self) -> None:
         with self._lock:

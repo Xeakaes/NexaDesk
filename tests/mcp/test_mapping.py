@@ -138,3 +138,40 @@ def test_register_failure_closes_started_clients(tmp_path):
     pid = int(pid_file.read_text())
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
+
+
+def test_register_failure_closes_hung_handshake_client(tmp_path):
+    pid_file = tmp_path / "hang.pid"
+    registry = ToolRegistry()
+    configs = [
+        _config(),
+        _config("hang_on_init", env={"FAKE_MCP_PID": str(pid_file)},
+                request_timeout_s=0.5),
+    ]
+    with pytest.raises(MCPClientError) as exc:
+        register_mcp_tools(registry, configs)
+    assert exc.value.code == "timeout"
+    pid = int(pid_file.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_handshake_failure_includes_server_stderr(tmp_path):
+    client = MCPClient(_config("die_on_init"))
+    with pytest.raises(MCPClientError) as exc:
+        client.start()
+    assert exc.value.code == "server_crashed"
+    assert "missing dependency 'libx'" in exc.value.message
+    client.close()
+
+
+def test_unknown_tool_jsonrpc_error_maps_to_mcp_error(tmp_path):
+    client = MCPClient(_config())
+    client.start()
+    try:
+        adapter = MCPToolAdapter(client, "nope", "mcp_nope", "", {})
+        result = adapter.execute({}, CancellationToken())
+    finally:
+        client.close()
+    assert result.ok is False
+    assert result.error_code == "mcp_error"

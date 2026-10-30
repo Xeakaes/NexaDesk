@@ -105,18 +105,28 @@ def build_runtime(
             for server in (mcp_cfg.get("servers") or [])
         ]
         mcp_clients = register_mcp_tools(registry, mcp_configs)
-    policy = PermissionPolicy(settings.get("permissions") or {"*": "ask"})
-    agent_cfg_raw = settings.get("agent") or {}
-    agent_config = AgentConfig(
-        max_tool_calls=int(agent_cfg_raw.get("max_tool_calls", 10)),
-        tool_timeout_s=float(agent_cfg_raw.get("tool_timeout_s", 30)),
-        model_timeout_s=float(agent_cfg_raw.get("model_timeout_s", 60)),
-        max_history_images=int(agent_cfg_raw.get("max_history_images", 1)),
-        persona=str(agent_cfg_raw.get("persona", "")),
-    )
-    events = EventBus()
-    session = SessionStore()
-    runtime = AgentRuntime(provider, registry, policy, events, session, agent_config)
+    try:
+        policy = PermissionPolicy(settings.get("permissions") or {"*": "ask"})
+        agent_cfg_raw = settings.get("agent") or {}
+        agent_config = AgentConfig(
+            max_tool_calls=int(agent_cfg_raw.get("max_tool_calls", 10)),
+            tool_timeout_s=float(agent_cfg_raw.get("tool_timeout_s", 30)),
+            model_timeout_s=float(agent_cfg_raw.get("model_timeout_s", 60)),
+            max_history_images=int(agent_cfg_raw.get("max_history_images", 1)),
+            persona=str(agent_cfg_raw.get("persona", "")),
+        )
+        events = EventBus()
+        session = SessionStore()
+        runtime = AgentRuntime(
+            provider, registry, policy, events, session, agent_config
+        )
+    except BaseException:
+        for client in mcp_clients:
+            try:
+                client.close()
+            except Exception:
+                pass  # never mask the original construction failure
+        raise
     for client in mcp_clients:
         runtime.on_close(client.close)
     return runtime, events, session

@@ -107,6 +107,12 @@ def main() -> None:
         if method == "initialize":
             if scenario == "crash_on_init":
                 raise SystemExit(1)
+            if scenario == "die_on_init":
+                print("fake-mcp: missing dependency 'libx'", file=sys.stderr)
+                sys.stderr.flush()
+                raise SystemExit(1)
+            if scenario == "hang_on_init":
+                time.sleep(3600)
             params = msg.get("params") or {}
             _send({
                 "jsonrpc": "2.0",

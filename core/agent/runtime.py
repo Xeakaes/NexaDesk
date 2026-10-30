@@ -192,8 +192,8 @@ class AgentRuntime:
         for hook in self._close_hooks:
             try:
                 hook()
-            except Exception:
-                pass  # teardown must never raise
+            except Exception as exc:
+                log_event("close_hook_failed", hook_error=str(exc))
 
     def start_task(self, session_id: str, user_text: str) -> str:
         task_id = self.begin_task(session_id, user_text)

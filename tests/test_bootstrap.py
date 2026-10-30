@@ -227,3 +227,20 @@ def test_permission_policy_applies_to_mcp_tool_names():
     policy = PermissionPolicy({"*": "allow", "mcp_write_setup": "ask"})
     assert policy.check("mcp_write_setup") is PermissionLevel.ASK
     assert policy.check("mcp_echo") is PermissionLevel.ALLOW
+
+
+def test_bootstrap_mcp_client_closes_when_later_config_fails(tmp_path):
+    import pytest
+
+    from core.config import ConfigError
+
+    pid_file = tmp_path / "fake.pid"
+    sp, kp = _write_mcp_settings(tmp_path, enabled=True, pid_file=pid_file)
+    data = json.loads(sp.read_text())
+    data["permissions"] = {"*": "not-a-level"}
+    sp.write_text(json.dumps(data))
+    with pytest.raises(ConfigError):
+        build_runtime(settings_path=sp, secrets_path=kp, provider=FakeProvider([]))
+    pid = int(pid_file.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)

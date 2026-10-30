@@ -6,6 +6,11 @@ PermissionPolicy path like any built-in tool. Error codes follow the
 screen_control taxonomy where one exists (timeout, cancelled,
 server_unreachable); protocol-level MCP failures land on mcp_error while
 in-band tool failures (isError payload) land on tool_error.
+
+MCP tool ``annotations`` (readOnlyHint/destructiveHint write hints) are
+deliberately NOT derived into permission rules in M1: registered tool
+names flow through the existing PermissionPolicy like built-in tools,
+and hint-based level derivation is deferred to a later milestone.
 """
 
 from __future__ import annotations
@@ -89,8 +94,8 @@ def register_mcp_tools(
     try:
         for config in configs:
             client = MCPClient(config)
-            client.start()
-            clients.append(client)
+            clients.append(client)  # before start(): a failed handshake
+            client.start()          # must still be closable below
             for tool in client.list_tools():
                 mcp_name = tool["name"]
                 registry.register(MCPToolAdapter(
@@ -102,6 +107,9 @@ def register_mcp_tools(
                 ))
     except Exception:
         for client in clients:
-            client.close()
+            try:
+                client.close()
+            except Exception:
+                pass  # never mask the original registration failure
         raise
     return clients
