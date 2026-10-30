@@ -197,19 +197,29 @@ def _write_mcp_settings(tmp_path, enabled, pid_file=None):
     return sp, kp
 
 
-def test_bootstrap_registers_mcp_tools_and_closes_on_runtime_close(tmp_path):
-    pid_file = tmp_path / "fake.pid"
-    sp, kp = _write_mcp_settings(tmp_path, enabled=True, pid_file=pid_file)
+def test_bootstrap_registers_mcp_tools_and_closes_on_runtime_close(
+    tmp_path, monkeypatch
+):
+    import core.bootstrap as bs
+
+    clients = []
+    register = bs.register_mcp_tools
+
+    def track_clients(registry, configs):
+        started = register(registry, configs)
+        clients.extend(started)
+        return started
+
+    monkeypatch.setattr(bs, "register_mcp_tools", track_clients)
+    sp, kp = _write_mcp_settings(tmp_path, enabled=True)
     rt, events, session = build_runtime(
         settings_path=sp, secrets_path=kp, provider=FakeProvider([])
     )
     assert "mcp_echo" in rt.registry.names()
-    pid = int(pid_file.read_text())
-    os.kill(pid, 0)  # fake server is running
+    assert len(clients) == 1
+    assert clients[0]._proc.poll() is None
     rt.close()
-    import pytest
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+    assert clients[0]._proc.poll() is not None
 
 
 def test_bootstrap_mcp_disabled_registers_nothing(tmp_path):
@@ -229,18 +239,28 @@ def test_permission_policy_applies_to_mcp_tool_names():
     assert policy.check("mcp_echo") is PermissionLevel.ALLOW
 
 
-def test_bootstrap_mcp_client_closes_when_later_config_fails(tmp_path):
+def test_bootstrap_mcp_client_closes_when_later_config_fails(
+    tmp_path, monkeypatch
+):
     import pytest
 
+    import core.bootstrap as bs
     from core.config import ConfigError
 
-    pid_file = tmp_path / "fake.pid"
-    sp, kp = _write_mcp_settings(tmp_path, enabled=True, pid_file=pid_file)
+    clients = []
+    register = bs.register_mcp_tools
+
+    def track_clients(registry, configs):
+        started = register(registry, configs)
+        clients.extend(started)
+        return started
+
+    monkeypatch.setattr(bs, "register_mcp_tools", track_clients)
+    sp, kp = _write_mcp_settings(tmp_path, enabled=True)
     data = json.loads(sp.read_text())
     data["permissions"] = {"*": "not-a-level"}
     sp.write_text(json.dumps(data))
     with pytest.raises(ConfigError):
         build_runtime(settings_path=sp, secrets_path=kp, provider=FakeProvider([]))
-    pid = int(pid_file.read_text())
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+    assert len(clients) == 1
+    assert clients[0]._proc.poll() is not None
