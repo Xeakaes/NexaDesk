@@ -1,12 +1,11 @@
 import contextlib
-import json
-import os
 import sys
 
 import pytest
 
 from core.agent.cancellation import CancellationToken
-from core.mcp.client import MCPClient, MCPServerConfig, MCPClientError
+from core.mcp import mapping
+from core.mcp.client import MCPClient, MCPClientError, MCPServerConfig
 from core.mcp.mapping import MCPToolAdapter, register_mcp_tools
 from core.tools.registry import ToolRegistry, missing_required_args
 
@@ -125,35 +124,47 @@ def test_description_fallback_when_server_omits(tmp_path):
     client.close()
 
 
-def test_register_failure_closes_started_clients(tmp_path):
-    pid_file = tmp_path / "fake.pid"
+def test_register_failure_closes_started_clients(monkeypatch):
     registry = ToolRegistry()
+    clients = []
+    client_type = MCPClient
+
+    def track_client(config):
+        client = client_type(config)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(mapping, "MCPClient", track_client)
     configs = [
-        _config(env={"FAKE_MCP_PID": str(pid_file)}),
+        _config(),
         MCPServerConfig(command=["no-such-binary-xyz"]),
     ]
     with pytest.raises(MCPClientError) as exc:
         register_mcp_tools(registry, configs)
     assert exc.value.code == "spawn_failed"
-    pid = int(pid_file.read_text())
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+    assert clients[0]._proc.poll() is not None
 
 
-def test_register_failure_closes_hung_handshake_client(tmp_path):
-    pid_file = tmp_path / "hang.pid"
+def test_register_failure_closes_hung_handshake_client(monkeypatch):
     registry = ToolRegistry()
+    clients = []
+    client_type = MCPClient
+
+    def track_client(config):
+        client = client_type(config)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(mapping, "MCPClient", track_client)
     configs = [
         _config(),
-        _config("hang_on_init", env={"FAKE_MCP_PID": str(pid_file)},
-                request_timeout_s=0.5),
+        _config("hang_on_init", request_timeout_s=0.5),
     ]
     with pytest.raises(MCPClientError) as exc:
         register_mcp_tools(registry, configs)
     assert exc.value.code == "timeout"
-    pid = int(pid_file.read_text())
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+    assert len(clients) == 2
+    assert all(client._proc.poll() is not None for client in clients)
 
 
 def test_handshake_failure_includes_server_stderr(tmp_path):

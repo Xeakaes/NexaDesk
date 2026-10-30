@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 import threading
 import time
@@ -7,7 +6,7 @@ import time
 import pytest
 
 from core.agent.cancellation import CancellationToken
-from core.mcp.client import MCPClient, MCPServerConfig, MCPClientError
+from core.mcp.client import MCPClient, MCPClientError, MCPServerConfig
 
 
 def _config(scenario: str = "ok", *args: str, **overrides) -> MCPServerConfig:
@@ -63,14 +62,11 @@ def test_crash_during_initialize_raises_server_crashed():
     assert exc.value.code == "server_crashed"
 
 
-def test_close_terminates_process(tmp_path):
-    pid_file = tmp_path / "fake.pid"
-    client = MCPClient(_config(env={"FAKE_MCP_PID": str(pid_file)}))
+def test_close_terminates_process():
+    client = MCPClient(_config())
     client.start()
-    pid = int(pid_file.read_text())
     client.close()
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+    assert client._proc.poll() is not None
 
 
 def test_close_is_idempotent(tmp_path):
@@ -80,13 +76,10 @@ def test_close_is_idempotent(tmp_path):
     client.close()  # second close must not raise
 
 
-def test_context_manager_closes(tmp_path):
-    pid_file = tmp_path / "fake.pid"
-    with MCPClient(_config(env={"FAKE_MCP_PID": str(pid_file)})) as client:
+def test_context_manager_closes():
+    with MCPClient(_config()) as client:
         client.start()
-        pid = int(pid_file.read_text())
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+    assert client._proc.poll() is not None
 
 
 def test_from_dict_parses_all_fields():
@@ -234,20 +227,16 @@ def test_reconnect_after_crash(tmp_path):
         assert exc.value.code == "server_crashed"
         payload = client.call_tool("get_lap", {})  # auto-reconnect heals the call
         assert json.loads(payload["content"][0]["text"])["lap"] == 1
-        second_pid = int(pid_file.read_text())
-        assert second_pid != first_pid
+        assert int(pid_file.read_text()) != first_pid
         client.close()
-        with pytest.raises(ProcessLookupError):
-            os.kill(second_pid, 0)
+        assert client._proc.poll() is not None
     finally:
         client.close()
 
 
 def test_invalid_json_response_raises_protocol(tmp_path):
-    pid_file = tmp_path / "fake.pid"
-    client = MCPClient(_config("invalid_json", env={"FAKE_MCP_PID": str(pid_file)}))
+    client = MCPClient(_config("invalid_json"))
     client.start()
-    pid = int(pid_file.read_text())
     try:
         start = time.monotonic()
         with pytest.raises(MCPClientError) as exc:
@@ -255,7 +244,6 @@ def test_invalid_json_response_raises_protocol(tmp_path):
         assert exc.value.code == "protocol"
         assert time.monotonic() - start < 2.0
         client.close()
-        with pytest.raises(ProcessLookupError):
-            os.kill(pid, 0)
+        assert client._proc.poll() is not None
     finally:
         client.close()
